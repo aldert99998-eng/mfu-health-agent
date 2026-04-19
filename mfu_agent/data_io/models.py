@@ -372,7 +372,11 @@ class ReflectionResult(BaseModel):
 class BatchContext(BaseModel):
     """Context for batch-mode agent execution."""
 
-    model_config = ConfigDict(frozen=False, arbitrary_types_allowed=True)
+    model_config = ConfigDict(
+        frozen=False,
+        arbitrary_types_allowed=True,
+        revalidate_instances="never",
+    )
 
     weights_profile: WeightsProfile
     factor_store: Any = None
