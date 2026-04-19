@@ -6,7 +6,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 # ── Enums ──────────────────────────────────────────────────────────────────────
 
@@ -375,7 +375,6 @@ class BatchContext(BaseModel):
     model_config = ConfigDict(
         frozen=False,
         arbitrary_types_allowed=True,
-        revalidate_instances="never",
     )
 
     weights_profile: WeightsProfile
@@ -383,6 +382,16 @@ class BatchContext(BaseModel):
     fleet_stats: Any = None
     device_metadata: Any = None
     learned_patterns: list[LearnedPattern] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_weights_profile(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        wp = data.get("weights_profile")
+        if wp is not None and not isinstance(wp, dict) and hasattr(wp, "model_dump"):
+            data = {**data, "weights_profile": wp.model_dump()}
+        return data
 
 
 class ChatContext(BaseModel):
