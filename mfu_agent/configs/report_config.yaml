@@ -1,0 +1,32 @@
+rendering:
+  template_path: "reporting/templates/report.jinja2"
+  css_path: "reporting/styles/report.css"
+  print_css_path: "reporting/styles/report_print.css"
+
+thresholds:
+  green_zone: 75
+  red_zone: 40
+  high_confidence: 0.85
+  medium_confidence: 0.6
+
+top_patterns:
+  max_count: 5
+  mass_issue_min_devices: 3
+  critical_single_index_threshold: 20
+  critical_single_confidence_threshold: 0.4
+
+display:
+  max_devices_in_table_html: 500
+  max_devices_in_pdf_warning: 300
+  sparkline_history_points: 5
+
+category_breakdown_auto:
+  - condition: "unique_models > 1"
+    use: "model"
+  - condition: "unique_locations > 1"
+    use: "location"
+  - default: "confidence_zone"
+
+agent_trace:
+  devices_to_include: 3
+  selection_strategy: "worst_best_flagged"

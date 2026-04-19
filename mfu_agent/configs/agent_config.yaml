@@ -1,0 +1,38 @@
+agent:
+  max_attempts_per_device: 2
+  max_tool_calls_per_attempt: 15
+  max_llm_calls_per_attempt: 20
+  trace_retention_days: 30
+
+reflection:
+  enabled: true
+  apply_in_chat_mode: false
+
+memory:
+  enabled: true
+  max_patterns_per_model: 50
+  pattern_min_evidence_devices: 2
+
+role_extensions:
+  enabled: true
+  critical_function_devices:
+    - location_patterns: ["legal*", "finance*"]
+    - tag: "critical_function"
+
+llm:
+  batch_mode:
+    temperature: 0.2
+    top_p: 0.9
+    max_tokens: 2000
+  chat_mode:
+    temperature: 0.4
+    top_p: 0.9
+    max_tokens: 3000
+  reflection:
+    temperature: 0.1
+    top_p: 1.0
+    max_tokens: 500
+  classify_severity:
+    temperature: 0.0
+    top_p: 1.0
+    max_tokens: 300

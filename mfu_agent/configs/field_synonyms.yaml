@@ -1,0 +1,134 @@
+device_id:
+  - device_id
+  - deviceid
+  - device-id
+  - dev_id
+  - devid
+  - id
+  - device
+  - serial
+  - serial_number
+  - serialnumber
+  - device_serial
+  - device_sn
+  - printer_id
+  - prn_id
+  - id_prn
+  - id_printer
+  - mfp_id
+  - id_mfp
+  - id_устройства
+  - идентификатор
+  - серийный_номер
+  - серийный
+  - инв_номер
+  - инвентарный
+  - номер_мфу
+  - номер
+
+timestamp:
+  - timestamp
+  - ts
+  - time
+  - datetime
+  - event_time
+  - eventtime
+  - created_at
+  - createdat
+  - дата
+  - время
+  - дата_время
+  - дата_события
+  - дата_и_время
+  - clock
+
+error_code:
+  - error_code
+  - errorcode
+  - error
+  - code
+  - err
+  - error_id
+  - errorid
+  - код_ошибки
+  - код
+  - ошибка
+  - event_code
+
+error_description:
+  - error_description
+  - description
+  - error_text
+  - message
+  - описание
+  - описание_ошибки
+  - текст_ошибки
+  - сообщение
+
+model:
+  - model
+  - device_model
+  - printer_model
+  - модель
+  - модель_устройства
+
+vendor:
+  - vendor
+  - manufacturer
+  - brand
+  - производитель
+  - бренд
+  - вендор
+
+location:
+  - location
+  - site
+  - office
+  - building
+  - room
+  - локация
+  - офис
+  - адрес
+  - местоположение
+
+status:
+  - status
+  - device_status
+  - state
+  - статус
+  - состояние
+
+mileage:
+  - mileage
+  - page_count
+  - pages
+  - counter
+  - total_pages
+  - пробег
+  - счётчик
+  - страниц_напечатано
+
+toner_level:
+  - toner_level
+  - toner
+  - toner_pct
+  - toner_%
+  - toner_remaining
+  - тонер
+  - уровень_тонера
+
+drum_level:
+  - drum_level
+  - drum
+  - drum_pct
+  - drum_remaining
+  - барабан
+  - ресурс_барабана
+
+fuser_level:
+  - fuser_level
+  - fuser
+  - fuser_pct
+  - fuser_remaining
+  - фьюзер
+  - ресурс_фьюзера

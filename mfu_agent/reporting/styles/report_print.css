@@ -1,0 +1,112 @@
+@font-face {
+  font-family: 'PT Sans';
+  font-style: normal;
+  font-weight: 400;
+  src: url('../assets/fonts/PTSans-Regular.ttf') format('truetype');
+}
+
+@font-face {
+  font-family: 'PT Sans';
+  font-style: normal;
+  font-weight: 500;
+  src: url('../assets/fonts/PTSans-Bold.ttf') format('truetype');
+}
+
+@page {
+  size: A4 portrait;
+  margin: 2cm 1.5cm;
+
+  @top-right {
+    content: "Отчёт МФУ — " string(report-date);
+    font-size: 9px;
+    color: #999;
+  }
+
+  @bottom-center {
+    content: "Страница " counter(page) " из " counter(pages);
+    font-size: 9px;
+    color: #999;
+  }
+}
+
+body {
+  background: #fff;
+  max-width: none;
+  padding: 0;
+  font-size: 11px;
+}
+
+h1 { font-size: 20px; string-set: report-date attr(data-date); }
+h2 { font-size: 15px; }
+h3 { font-size: 13px; }
+
+.search-bar,
+.filter-chips,
+.sort-handle,
+.table-controls {
+  display: none !important;
+}
+
+.report-section {
+  page-break-inside: auto;
+}
+
+#top-patterns {
+  page-break-before: auto;
+}
+
+#device-table {
+  page-break-before: always;
+}
+
+.device-table thead {
+  display: table-header-group;
+}
+
+.device-table th {
+  position: static;
+}
+
+.device-card {
+  page-break-inside: avoid;
+}
+
+.pattern-card {
+  page-break-inside: avoid;
+}
+
+.breakdown-card {
+  page-break-inside: avoid;
+}
+
+.metrics-grid {
+  grid-template-columns: repeat(4, 1fr);
+}
+
+.trace-grid {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.bar-track {
+  border: 1px solid #ddd;
+}
+
+a { color: inherit; text-decoration: none; }
+
+.zone-chip {
+  border: 1px solid currentColor;
+}
+
+.metric-card,
+.pattern-card,
+.device-card,
+.breakdown-card,
+.trace-item {
+  border: 1px solid #ccc;
+  box-shadow: none;
+}
+
+.report-footer {
+  page-break-before: auto;
+  margin-top: 20px;
+}

@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Отчёт о здоровье парка МФУ — {{ report.generated_at.strftime('%d.%m.%Y %H:%M') }}</title>
+  <link rel="stylesheet" href="report.css">
+  {% if not interactive %}
+  <link rel="stylesheet" href="report_print.css" media="print">
+  {% endif %}
+  <style>
+    {%- include "report_inline.css" ignore missing %}
+  </style>
+</head>
+<body>
+
+{# ── Section 1: Header & Summary ────────────────────────────────────────── #}
+<section id="header" class="report-section">
+  <h1>Отчёт о здоровье парка МФУ</h1>
+  <div class="report-meta">
+    <span>Дата: {{ report.generated_at.strftime('%d.%m.%Y %H:%M') }}</span>
+    <span>Файл: {{ report.source_file_name }}</span>
+    <span>ID: {{ report.report_id[:8] }}…</span>
+  </div>
+
+  <div class="metrics-grid">
+    <div class="metric-card">
+      <div class="metric-value">{{ report.fleet_summary.total_devices }}</div>
+      <div class="metric-label">Устройств</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-value">{{ '%.1f'|format(report.fleet_summary.average_index) }}</div>
+      <div class="metric-label">Средний индекс</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-value">{{ '%.1f'|format(report.fleet_summary.median_index) }}</div>
+      <div class="metric-label">Медиана</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-value">{{ '%.0f'|format(report.fleet_summary.average_confidence * 100) }}%</div>
+      <div class="metric-label">Ср. уверенность</div>
+    </div>
+  </div>
+
+  <div class="zone-summary">
+    <span class="zone-chip zone-green">{{ report.fleet_summary.zone_counts.get('green', 0) }} зелёных</span>
+    <span class="zone-chip zone-yellow">{{ report.fleet_summary.zone_counts.get('yellow', 0) }} жёлтых</span>
+    <span class="zone-chip zone-red">{{ report.fleet_summary.zone_counts.get('red', 0) }} красных</span>
+  </div>
+
+  {% if report.fleet_summary.delta_vs_previous is not none %}
+  <div class="delta-indicator {% if report.fleet_summary.delta_vs_previous >= 0 %}delta-positive{% else %}delta-negative{% endif %}">
+    Δ {{ '%+.1f'|format(report.fleet_summary.delta_vs_previous) }} к предыдущему
+  </div>
+  {% endif %}
+</section>
+
+{# ── Section 2: Executive Summary ────────────────────────────────────────── #}
+<section id="executive-summary" class="report-section">
+  <h2>Резюме</h2>
+  <div class="executive-text">{{ report.executive_summary }}</div>
+</section>
+
+{# ── Section 3: Top Patterns ─────────────────────────────────────────────── #}
+{% if report.top_patterns %}
+<section id="top-patterns" class="report-section">
+  <h2>Ключевые паттерны</h2>
+  {% for pattern in report.top_patterns %}
+  <div class="pattern-card pattern-{{ pattern.pattern_type.value }}">
+    <div class="pattern-header">
+      <span class="pattern-badge badge-{{ pattern.pattern_type.value }}">
+        {% if pattern.pattern_type.value == 'mass_issue' %}Массовая проблема
+        {% elif pattern.pattern_type.value == 'location_cluster' %}Кластер по локации
+        {% elif pattern.pattern_type.value == 'critical_single' %}Критическое устройство
+        {% endif %}
+      </span>
+      <span class="pattern-title">{{ pattern.title }}</span>
+    </div>
+    <div class="pattern-body">
+      <p>{{ pattern.explanation }}</p>
+      <div class="pattern-stats">
+        <span>Затронуто: {{ pattern.affected_device_ids|length }} устр.</span>
+        <span>Ср. индекс: {{ '%.0f'|format(pattern.average_index) }}</span>
+      </div>
+      <div class="pattern-devices">
+        {% for did in pattern.affected_device_ids %}
+        <a href="#device-{{ did }}" class="device-link">{{ did }}</a>
+        {% endfor %}
+      </div>
+      {% if pattern.doc_references %}
+      <div class="pattern-docs">
+        {% for doc in pattern.doc_references %}
+        <span class="doc-ref" title="{{ doc.section }}">📄 {{ doc.title }}</span>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</section>
+{% endif %}
+
+{# ── Section 4: Distribution ─────────────────────────────────────────────── #}
+<section id="distribution" class="report-section">
+  <h2>Распределение индексов</h2>
+  {% set max_count = report.index_distribution|map(attribute='count')|max if report.index_distribution else 1 %}
+  <div class="distribution-chart">
+    {% for bin in report.index_distribution %}
+    <div class="dist-bar-group">
+      <div class="dist-bar-wrapper">
+        <div class="dist-bar
+          {%- if bin.range_end <= 40 %} bar-red
+          {%- elif bin.range_end <= 75 %} bar-yellow
+          {%- else %} bar-green{% endif %}"
+          style="width: {{ (bin.count / max_count * 100) if max_count > 0 else 0 }}%"
+          title="{{ bin.count }} устр.">
+        </div>
+        <span class="dist-count">{{ bin.count }}</span>
+      </div>
+      <div class="dist-label">{{ bin.range_start }}–{{ bin.range_end }}</div>
+    </div>
+    {% endfor %}
+  </div>
+</section>
+
+{# ── Section 5: Device Table ─────────────────────────────────────────────── #}
+<section id="device-table" class="report-section">
+  <h2>Устройства</h2>
+
+  {% if interactive %}
+  <div class="table-controls">
+    <input type="text" id="device-search" class="search-bar" placeholder="Поиск по ID, модели, локации…" oninput="filterTable(this.value)">
+    <div class="filter-chips">
+      <button class="zone-chip zone-green" onclick="filterByZone('green')">Зелёные</button>
+      <button class="zone-chip zone-yellow" onclick="filterByZone('yellow')">Жёлтые</button>
+      <button class="zone-chip zone-red" onclick="filterByZone('red')">Красные</button>
+      <button class="zone-chip zone-all" onclick="filterByZone('all')">Все</button>
+    </div>
+  </div>
+  {% endif %}
+
+  <table class="device-table">
+    <thead>
+      <tr>
+        <th {% if interactive %}class="sort-handle" onclick="sortTable(0)"{% endif %}>ID</th>
+        <th {% if interactive %}class="sort-handle" onclick="sortTable(1)"{% endif %}>Модель</th>
+        <th {% if interactive %}class="sort-handle" onclick="sortTable(2)"{% endif %}>Локация</th>
+        <th {% if interactive %}class="sort-handle" onclick="sortTable(3, true)"{% endif %}>Индекс</th>
+        <th {% if interactive %}class="sort-handle" onclick="sortTable(4, true)"{% endif %}>Уверенность</th>
+        <th>Зона</th>
+        <th>Проблема</th>
+      </tr>
+    </thead>
+    <tbody id="device-tbody">
+      {% for device in report.devices %}
+      <tr class="device-row zone-row-{{ device.zone.value }}" data-zone="{{ device.zone.value }}">
+        <td><a href="#device-{{ device.device_id }}">{{ device.device_id }}</a></td>
+        <td>{{ device.model or '—' }}</td>
+        <td>{{ device.location or '—' }}</td>
+        <td class="text-right">
+          <span class="index-value zone-text-{{ device.zone.value }}">{{ device.health_index }}</span>
+        </td>
+        <td class="text-right">{{ '%.0f'|format(device.confidence * 100) }}%</td>
+        <td><span class="zone-dot zone-{{ device.zone.value }}"></span></td>
+        <td>{{ device.top_problem_tag or '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+{# ── Section 6: Device Cards ─────────────────────────────────────────────── #}
+<section id="device-cards" class="report-section">
+  <h2>Детали по устройствам</h2>
+  {% for device in report.devices %}
+  <div id="device-{{ device.device_id }}" class="device-card zone-border-{{ device.zone.value }}">
+    <div class="card-header">
+      <h3>{{ device.device_id }}{% if device.model %} — {{ device.model }}{% endif %}</h3>
+      <span class="zone-badge zone-{{ device.zone.value }}">{{ device.zone.value|upper }}</span>
+      {% if device.flag_for_review %}
+      <span class="review-flag">⚠ Требует проверки</span>
+      {% endif %}
+    </div>
+
+    <div class="card-metrics">
+      <div class="card-metric">
+        <span class="card-metric-label">Индекс</span>
+        <span class="card-metric-value zone-text-{{ device.zone.value }}">{{ device.health_index }}</span>
+      </div>
+      <div class="card-metric">
+        <span class="card-metric-label">Уверенность</span>
+        <span class="card-metric-value">{{ '%.0f'|format(device.confidence * 100) }}%</span>
+      </div>
+      {% if device.location %}
+      <div class="card-metric">
+        <span class="card-metric-label">Локация</span>
+        <span class="card-metric-value">{{ device.location }}</span>
+      </div>
+      {% endif %}
+    </div>
+
+    {# Resource bars #}
+    {% if device.resource_state %}
+    <div class="resource-bars">
+      {% if device.resource_state.toner is not none %}
+      <div class="resource-row">
+        <span class="resource-label">Тонер</span>
+        <div class="bar-track"><div class="bar-fill {% if device.resource_state.toner < 15 %}bar-red{% elif device.resource_state.toner < 30 %}bar-yellow{% else %}bar-green{% endif %}" style="width: {{ device.resource_state.toner }}%"></div></div>
+        <span class="resource-value">{{ device.resource_state.toner }}%</span>
+      </div>
+      {% endif %}
+      {% if device.resource_state.drum is not none %}
+      <div class="resource-row">
+        <span class="resource-label">Барабан</span>
+        <div class="bar-track"><div class="bar-fill {% if device.resource_state.drum < 15 %}bar-red{% elif device.resource_state.drum < 30 %}bar-yellow{% else %}bar-green{% endif %}" style="width: {{ device.resource_state.drum }}%"></div></div>
+        <span class="resource-value">{{ device.resource_state.drum }}%</span>
+      </div>
+      {% endif %}
+      {% if device.resource_state.fuser is not none %}
+      <div class="resource-row">
+        <span class="resource-label">Фьюзер</span>
+        <div class="bar-track"><div class="bar-fill {% if device.resource_state.fuser < 15 %}bar-red{% elif device.resource_state.fuser < 30 %}bar-yellow{% else %}bar-green{% endif %}" style="width: {{ device.resource_state.fuser }}%"></div></div>
+        <span class="resource-value">{{ device.resource_state.fuser }}%</span>
+      </div>
+      {% endif %}
+      {% if device.resource_state.mileage is not none %}
+      <div class="resource-row">
+        <span class="resource-label">Пробег</span>
+        <span class="resource-value">{{ '{:,}'.format(device.resource_state.mileage)|replace(',', ' ') }} стр.</span>
+      </div>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    {# Factor contributions #}
+    {% if device.factor_contributions %}
+    <div class="factor-table-wrapper">
+      <table class="factor-table">
+        <thead>
+          <tr>
+            <th>Фактор</th>
+            <th class="text-right">Штраф</th>
+            <th class="text-right">S</th>
+            <th class="text-right">R</th>
+            <th class="text-right">C</th>
+            <th class="text-right">A</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for fc in device.factor_contributions %}
+          <tr>
+            <td>{{ fc.label }}</td>
+            <td class="text-right">{{ '%.1f'|format(fc.penalty) }}</td>
+            <td class="text-right">{{ '%.0f'|format(fc.S) }}</td>
+            <td class="text-right">{{ '%.1f'|format(fc.R) }}</td>
+            <td class="text-right">{{ '%.1f'|format(fc.C) }}</td>
+            <td class="text-right">{{ '%.1f'|format(fc.A) }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+
+    {# Agent recommendation #}
+    {% if device.agent_recommendation %}
+    <div class="agent-recommendation">
+      <strong>Рекомендация:</strong> {{ device.agent_recommendation }}
+    </div>
+    {% endif %}
+  </div>
+  {% endfor %}
+</section>
+
+{# ── Section 7: Category Breakdown ───────────────────────────────────────── #}
+{% if report.category_breakdown %}
+<section id="category-breakdown" class="report-section">
+  <h2>Разбивка по: {{ report.category_breakdown.category_field }}</h2>
+  <div class="breakdown-grid">
+    {% for group_name, summary in report.category_breakdown.groups.items() %}
+    <div class="breakdown-card">
+      <h3>{{ group_name }}</h3>
+      <div class="breakdown-stats">
+        <span>{{ summary.total_devices }} устр.</span>
+        <span>Ср. индекс: {{ '%.1f'|format(summary.average_index) }}</span>
+      </div>
+      <div class="zone-summary">
+        <span class="zone-chip zone-green">{{ summary.zone_counts.get('green', 0) }}</span>
+        <span class="zone-chip zone-yellow">{{ summary.zone_counts.get('yellow', 0) }}</span>
+        <span class="zone-chip zone-red">{{ summary.zone_counts.get('red', 0) }}</span>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+{# ── Section 8: Agent Trace (optional) ───────────────────────────────────── #}
+{% if report.include_agent_trace and report.agent_trace_summary %}
+<section id="agent-trace" class="report-section">
+  <h2>Трассировка агента</h2>
+  <div class="trace-grid">
+    <div class="trace-item">
+      <span class="trace-label">Ср. вызовов инструментов / устр.</span>
+      <span class="trace-value">{{ '%.1f'|format(report.agent_trace_summary.average_tool_calls_per_device) }}</span>
+    </div>
+    <div class="trace-item">
+      <span class="trace-label">Ср. вызовов LLM / устр.</span>
+      <span class="trace-value">{{ '%.1f'|format(report.agent_trace_summary.average_llm_calls_per_device) }}</span>
+    </div>
+    <div class="trace-item">
+      <span class="trace-label">Перезапуски self-check</span>
+      <span class="trace-value">{{ report.agent_trace_summary.self_check_restart_count }}</span>
+    </div>
+    <div class="trace-item">
+      <span class="trace-label">RAG-запросов</span>
+      <span class="trace-value">{{ report.agent_trace_summary.rag_request_count }}</span>
+    </div>
+    <div class="trace-item">
+      <span class="trace-label">Ср. rerank score</span>
+      <span class="trace-value">{{ '%.2f'|format(report.agent_trace_summary.rag_average_rerank_score) }}</span>
+    </div>
+    <div class="trace-item">
+      <span class="trace-label">RAG без совпадений</span>
+      <span class="trace-value">{{ '%.0f'|format(report.agent_trace_summary.rag_no_match_percent) }}%</span>
+    </div>
+  </div>
+  {% if report.agent_trace_summary.devices_flagged_for_review %}
+  <div class="flagged-devices">
+    <strong>Устройства на проверку:</strong>
+    {% for did in report.agent_trace_summary.devices_flagged_for_review %}
+    <a href="#device-{{ did }}" class="device-link">{{ did }}</a>
+    {% endfor %}
+  </div>
+  {% endif %}
+</section>
+{% endif %}
+
+{# ── Section 9: Calculation Snapshot ─────────────────────────────────────── #}
+<section id="calc-snapshot" class="report-section">
+  <h2>Параметры расчёта</h2>
+  <div class="snapshot-grid">
+    <div class="snapshot-item">
+      <span class="snapshot-label">Профиль весов</span>
+      <span class="snapshot-value">{{ report.calculation_snapshot.weights_profile_name }} v{{ report.calculation_snapshot.weights_profile_version }}</span>
+    </div>
+    {% if report.calculation_snapshot.llm_model %}
+    <div class="snapshot-item">
+      <span class="snapshot-label">Модель LLM</span>
+      <span class="snapshot-value">{{ report.calculation_snapshot.llm_model }}</span>
+    </div>
+    {% endif %}
+    {% if report.calculation_snapshot.embedding_model %}
+    <div class="snapshot-item">
+      <span class="snapshot-label">Embedding</span>
+      <span class="snapshot-value">{{ report.calculation_snapshot.embedding_model }}</span>
+    </div>
+    {% endif %}
+    <div class="snapshot-item">
+      <span class="snapshot-label">Записей во входном файле</span>
+      <span class="snapshot-value">{{ report.calculation_snapshot.input_record_count }}</span>
+    </div>
+    <div class="snapshot-item">
+      <span class="snapshot-label">Валидных записей</span>
+      <span class="snapshot-value">{{ report.calculation_snapshot.valid_record_count }}</span>
+    </div>
+    {% if report.calculation_snapshot.discarded_record_count > 0 %}
+    <div class="snapshot-item">
+      <span class="snapshot-label">Отброшено</span>
+      <span class="snapshot-value">{{ report.calculation_snapshot.discarded_record_count }}</span>
+    </div>
+    {% endif %}
+    <div class="snapshot-item">
+      <span class="snapshot-label">Хеш файла</span>
+      <span class="snapshot-value snapshot-mono">{{ report.source_file_hash }}</span>
+    </div>
+  </div>
+</section>
+
+<footer class="report-footer">
+  <span>Сгенерировано: {{ report.generated_at.strftime('%d.%m.%Y %H:%M:%S') }}</span>
+  <span>Окно анализа: {{ report.analysis_window_days }} дн.</span>
+</footer>
+
+{% if interactive %}
+<script>
+function sortTable(colIdx, numeric) {
+  var table = document.querySelector('.device-table');
+  var tbody = document.getElementById('device-tbody');
+  var rows = Array.from(tbody.querySelectorAll('tr'));
+  var asc = table.dataset.sortCol == colIdx && table.dataset.sortDir === 'asc';
+  table.dataset.sortCol = colIdx;
+  table.dataset.sortDir = asc ? 'desc' : 'asc';
+  rows.sort(function(a, b) {
+    var va = a.cells[colIdx].textContent.trim();
+    var vb = b.cells[colIdx].textContent.trim();
+    if (numeric) {
+      va = parseFloat(va.replace(/[^0-9.\-]/g, '')) || 0;
+      vb = parseFloat(vb.replace(/[^0-9.\-]/g, '')) || 0;
+    }
+    var cmp = numeric ? va - vb : va.localeCompare(vb, 'ru');
+    return asc ? -cmp : cmp;
+  });
+  rows.forEach(function(r) { tbody.appendChild(r); });
+}
+
+function filterTable(query) {
+  query = query.toLowerCase();
+  var rows = document.querySelectorAll('#device-tbody tr');
+  rows.forEach(function(row) {
+    var text = row.textContent.toLowerCase();
+    row.style.display = text.indexOf(query) >= 0 ? '' : 'none';
+  });
+}
+
+function filterByZone(zone) {
+  var rows = document.querySelectorAll('#device-tbody tr');
+  rows.forEach(function(row) {
+    if (zone === 'all') {
+      row.style.display = '';
+    } else {
+      row.style.display = row.dataset.zone === zone ? '' : 'none';
+    }
+  });
+  var chips = document.querySelectorAll('.filter-chips .zone-chip');
+  chips.forEach(function(c) { c.classList.remove('active'); });
+  var sel = zone === 'all' ? '.zone-all' : '.zone-' + zone;
+  var active = document.querySelector('.filter-chips ' + sel);
+  if (active) active.classList.add('active');
+}
+</script>
+{% endif %}
+
+</body>
+</html>

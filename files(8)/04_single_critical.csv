@@ -1,0 +1,2 @@
+device_id,device_serial,model,timestamp,error_code,error_description,mileage,toner_level,drum_level,fault_history
+MFP-00150,9c934e68aee0,Xerox WorkCentre 5945,2026-01-08 06:00:16,75-530-00,75-530-00 Tray 5 is empty. User intervention is required to add paper to Tray 5. Print and Copy services can continue if the correct paper is available in other trays.,481912,3,14,430

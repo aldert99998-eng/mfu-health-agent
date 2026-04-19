@@ -1,0 +1,6 @@
+device_id,device_serial,model,timestamp,error_code,error_description,mileage,toner_level,drum_level,fault_history
+MFP-00077,9c934e5715bc,Xerox WorkCentre 5845,2026-01-08 06:00:12,07-535-00,07-535-00 Tray 5 (Bypass) is empty. User intervention is required to add paper to Tray 5. Print and Copy services can continue if the correct paper is available in other trays.,468966,5,37,319
+MFP-00077,9c934e5715bc,Xerox WorkCentre 5845,2026-01-08 06:00:12,17-562-00,17-562-00 Machine is unable to contact the remote Xerox SMart eSolutions Communication Server. User intervention is required to review SMart eSolutions settings. Device services are unaffected.,468966,5,37,319
+MFP-00077,9c934e5715bc,Xerox WorkCentre 5845,2026-01-15 10:00:00,07-535-00,"Tray empty with 
+unclosed quote,broken,,,,,
+MFP-00080;9c934e5715bc;Xerox AltaLink B8045;2026-01-15 10:00:00;07-535-00;Bad line

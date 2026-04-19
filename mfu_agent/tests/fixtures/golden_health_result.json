@@ -1,0 +1,31 @@
+{
+  "device_id": "D001",
+  "health_index": 15,
+  "confidence": 0.7,
+  "zone": "red",
+  "confidence_zone": "medium",
+  "factor_contributions": [
+    {
+      "label": "C6000 (Critical)",
+      "penalty": 75.6,
+      "S": 60.0,
+      "R": 1.5,
+      "C": 1.2,
+      "A": 0.7,
+      "source": "manual"
+    },
+    {
+      "label": "A1001 (Medium)",
+      "penalty": 9.0,
+      "S": 10.0,
+      "R": 1.0,
+      "C": 1.0,
+      "A": 0.9,
+      "source": "rag"
+    }
+  ],
+  "confidence_reasons": [
+    "RAG не нашёл 1 код(ов) ошибок"
+  ],
+  "reflection_notes": null
+}

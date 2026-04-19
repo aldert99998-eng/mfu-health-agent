@@ -1,0 +1,101 @@
+# Component synonym dictionary for metadata enrichment.
+# canonical_name: [synonyms in English and Russian]
+
+fuser:
+  - фьюзер
+  - печка
+  - термоблок
+  - fusing unit
+  - fuser unit
+  - heat roller
+  - нагревательный ролик
+  - термопленка
+
+drum:
+  - барабан
+  - фотобарабан
+  - OPC drum
+  - photoconductor
+  - imaging unit
+  - drum unit
+  - фотоцилиндр
+
+toner:
+  - тонер
+  - тонер-картридж
+  - toner cartridge
+  - toner bottle
+  - тонер-бутылка
+
+developer:
+  - девелопер
+  - проявитель
+  - developer unit
+  - developing unit
+
+scanner:
+  - сканер
+  - scanner unit
+  - CIS
+  - CCD
+  - scanner glass
+  - стекло сканера
+  - ADF
+  - автоподатчик
+
+laser_unit:
+  - лазерный блок
+  - laser unit
+  - LSU
+  - laser scanner unit
+  - оптический блок
+
+transfer:
+  - трансферный блок
+  - transfer belt
+  - transfer roller
+  - ремень переноса
+  - ролик переноса
+  - ITB
+
+fan:
+  - вентилятор
+  - fan motor
+  - cooling fan
+  - кулер
+
+paper_feed:
+  - подача бумаги
+  - paper feed
+  - feed roller
+  - ролик подачи
+  - pickup roller
+  - ролик захвата
+  - лоток
+  - cassette
+  - tray
+
+duplex:
+  - дуплекс
+  - duplex unit
+  - двусторонняя печать
+
+network:
+  - сеть
+  - network board
+  - LAN
+  - Wi-Fi
+  - сетевой модуль
+
+controller:
+  - контроллер
+  - main board
+  - engine board
+  - материнская плата
+  - PWB
+
+power_supply:
+  - блок питания
+  - power supply
+  - PSU
+  - power unit

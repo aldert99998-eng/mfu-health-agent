@@ -1,0 +1,32 @@
+# Regex patterns for extracting error codes from document chunks.
+# Each entry: vendor → list of patterns.
+
+kyocera:
+  - "[CJEF]\\d{4,5}"
+  - "SC\\d{3}"
+
+hp:
+  - "\\d{2}\\.\\d{2}\\.\\d{2}"
+  - "\\d{2}\\.\\d{1,2}"
+
+ricoh:
+  - "SC\\d{3}"
+  - "[CJEF]\\d{4}"
+
+xerox:
+  - "\\d{2}-\\d{3}-\\d{2}"
+  - "\\d{3}-\\d{3}"
+  - "\\d{3}\\.\\d{3}\\.\\d{3}"
+
+canon:
+  - "E\\d{3}-\\d{4}"
+  - "[CJEF]\\d{4}"
+
+brother:
+  - "[A-Z]{2}\\d{2}"
+
+generic:
+  - "[CJEFS]\\d{3,5}"
+  - "SC\\d{3}"
+  - "ERR[-_]?\\d{3,5}"
+  - "\\d{2}-\\d{3}-\\d{2}"

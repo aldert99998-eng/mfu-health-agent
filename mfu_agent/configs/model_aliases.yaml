@@ -1,0 +1,103 @@
+# Canonical model names and their aliases.
+# Format: canonical_name: [alias1, alias2, ...]
+
+"Kyocera TASKalfa 3253ci":
+  - taskalfa 3253ci
+  - taskalfa3253ci
+  - kyocera 3253ci
+  - kyocera 3253
+  - ta 3253ci
+  - 3253ci
+
+"Kyocera TASKalfa 2553ci":
+  - taskalfa 2553ci
+  - taskalfa2553ci
+  - kyocera 2553ci
+  - kyocera 2553
+  - ta 2553ci
+  - 2553ci
+
+"Kyocera ECOSYS M2040dn":
+  - ecosys m2040dn
+  - m2040dn
+  - kyocera m2040dn
+  - kyocera m2040
+  - ecosys m2040
+
+"Kyocera ECOSYS P2235dn":
+  - ecosys p2235dn
+  - p2235dn
+  - kyocera p2235dn
+  - ecosys p2235
+
+"HP LaserJet Pro M404n":
+  - laserjet pro m404n
+  - laserjet m404n
+  - hp m404n
+  - m404n
+  - hp m404
+  - lj pro m404n
+
+"HP LaserJet Enterprise M507":
+  - laserjet enterprise m507
+  - laserjet m507
+  - hp m507
+  - m507
+  - lj enterprise m507
+
+"HP Color LaserJet Pro M454dn":
+  - color laserjet pro m454dn
+  - color laserjet m454dn
+  - hp m454dn
+  - m454dn
+  - clj pro m454dn
+
+"Ricoh MP C3003":
+  - mp c3003
+  - ricoh c3003
+  - mpc3003
+  - ricoh mp c3003sp
+
+"Ricoh IM C3000":
+  - im c3000
+  - ricoh c3000
+  - imc3000
+  - ricoh im c3000
+
+"Xerox VersaLink C405":
+  - versalink c405
+  - xerox c405
+  - vlc405
+  - versalink c405dn
+
+"Xerox WorkCentre 7845":
+  - workcentre 7845
+  - xerox 7845
+  - wc7845
+  - wc 7845
+
+"Canon imageRUNNER ADVANCE C3530i":
+  - imagerunner advance c3530i
+  - ir advance c3530i
+  - ira c3530i
+  - canon c3530i
+  - c3530i
+  - ir adv c3530i
+
+"Canon imageRUNNER C3226":
+  - imagerunner c3226
+  - ir c3226
+  - canon c3226
+  - c3226
+
+"Brother MFC-L8900CDW":
+  - mfc-l8900cdw
+  - mfc l8900cdw
+  - brother l8900cdw
+  - mfcl8900cdw
+
+"Brother HL-L6400DW":
+  - hl-l6400dw
+  - hl l6400dw
+  - brother l6400dw
+  - hll6400dw
