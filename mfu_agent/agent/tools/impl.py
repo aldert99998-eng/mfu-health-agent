@@ -299,6 +299,14 @@ class ClassifyErrorSeverityTool:
                     filters=filters if filters else None,
                     use_reranker=True,
                 )
+                if not results and filters:
+                    results = self._deps.searcher.search(
+                        query,
+                        self._deps.collection,
+                        top_k=5,
+                        filters=None,
+                        use_reranker=True,
+                    )
                 if results:
                     context_text = "\n\n---\n\n".join(
                         f"[{r.document_id}] (score={r.score:.3f})\n{r.text[:400]}"
