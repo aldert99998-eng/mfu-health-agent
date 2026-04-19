@@ -307,17 +307,26 @@ class ClassifyErrorSeverityTool:
             except Exception:
                 logger.warning("RAG search failed for %s", parsed.error_code, exc_info=True)
 
-        if not context_text:
+        if self._deps.llm_client is None:
+            if not context_text:
+                heuristic = _heuristic_classify(parsed.error_code)
+                result_data = heuristic if heuristic else dict(_CLASSIFY_FALLBACK)
+            else:
+                result_data = dict(_CLASSIFY_FALLBACK)
+                result_data["reasoning"] = "LLM client not available, используется default."
+            self._cache[cache_key] = result_data
+            return ToolResult(success=True, data=result_data)
+
+        if not context_text and not parsed.error_description:
             heuristic = _heuristic_classify(parsed.error_code)
             result_data = heuristic if heuristic else dict(_CLASSIFY_FALLBACK)
             self._cache[cache_key] = result_data
             return ToolResult(success=True, data=result_data)
 
-        if self._deps.llm_client is None:
-            result_data = dict(_CLASSIFY_FALLBACK)
-            result_data["reasoning"] = "LLM client not available, используется default."
-            self._cache[cache_key] = result_data
-            return ToolResult(success=True, data=result_data)
+        if not context_text and parsed.error_description:
+            context_text = (
+                f"Описание из журнала устройства:\n{parsed.error_description}"
+            )
 
         prompt_text = self._prompt_template.format(
             error_code=parsed.error_code,
