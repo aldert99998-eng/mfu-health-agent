@@ -3,36 +3,67 @@
 AI-агент мониторинга парка многофункциональных устройств (МФУ).
 Рассчитывает интегральный индекс здоровья (1–100) для каждого устройства
 на основе событий ошибок, ресурсов и сервисной документации.
-Результат — HTML/PDF-отчёт с объяснением факторов снижения и рекомендациями.
+Результат — HTML/PDF-отчёт с объяснением факторов снижения и рекомендациями,
+плюс интерактивный чат с RAG-агентом по данным текущего отчёта.
 
 ## Требования
 
 - Python >= 3.11
 - Docker (для Qdrant)
-- Локальная LLM с OpenAI-совместимым API (vLLM, Ollama и т.д.)
+- Локальный `llama-server` с OpenAI-совместимым API (порт 8000) **или**
+  GigaChat-аккаунт (ключ в `.env` → `GIGACHAT_AUTH_KEY`)
 
-## Быстрый запуск (одна команда)
+## Запуск панели управления
+
+Если зависимости уже установлены — одна команда:
 
 ```bash
-cd ~/агенты/ии\ индекс\ здоровья/mfu_agent && make install && make run
+cd ~/агенты/ии\ индекс\ здоровья-2/mfu_agent && make up && make run
 ```
 
-Эта команда:
-1. Создаёт виртуальное окружение `.venv` и устанавливает все зависимости
-2. Поднимает Qdrant в Docker (`docker compose up -d`)
-3. Запускает Streamlit-приложение
+Что делает:
+1. Поднимает Qdrant в Docker (`make up` → `docker compose up -d`)
+2. Запускает Streamlit (`make run` → порт **8504**, headless)
 
-Панель управления откроется в браузере по адресу **http://localhost:8501**.
+Панель откроется в браузере по адресу **http://localhost:8504**.
+
+### Первая установка
+
+Только в самый первый раз (создаёт `.venv`, ставит зависимости, поднимает Qdrant):
+
+```bash
+cd ~/агенты/ии\ индекс\ здоровья-2/mfu_agent && make install
+```
+
+После этого для ежедневного запуска достаточно команды из раздела выше.
 
 ### Страницы панели управления
 
 | Страница | Назначение |
 |----------|-----------|
-| Главная | Статус системы: LLM-эндпоинт, FactorStore, отчёт |
-| 1 — Dashboard | Загрузка данных, запуск анализа, просмотр результатов |
-| 2 — Weights | Настройка весов формулы здоровья, пересчёт индексов |
-| 3 — LLM Chat | Чат с ИИ-агентом по результатам анализа |
-| 4 — RAG Admin | Управление RAG-базой: коллекции, индексация, поиск, eval |
+| 1 — Загрузка данных | Загрузка CSV/XLSX/JSON мониторинга, запуск фонового анализа |
+| 2 — Dashboard | Результаты анализа парка, deep-LLM по устройствам, анализ массовых ошибок |
+| 3 — Weights | Настройка весов формулы здоровья, пересчёт индексов |
+| 4 — LLM Chat | Чат с ИИ-агентом по текущему отчёту и сервисной документации |
+| 5 — Error Codes | Управление паттернами ошибок (yaml) |
+| 5 — RAG Admin | Управление RAG-базой: коллекции, индексация, поиск, eval |
+
+### LLM-провайдеры
+
+В сайдбаре каждой страницы — селектор провайдера:
+
+- **Локальная** — `llama-server` на `localhost:8000`. В раскрывающемся блоке
+  «🔀 Переключить локальную модель» — список `.gguf` из
+  `/home/albert/models/` (путь настраивается через env `MFU_LOCAL_MODELS_DIR`).
+  При нажатии «Применить»:
+  1. Останавливается старый `llama-server` (SIGTERM → SIGKILL через 5 с).
+  2. Ожидание освобождения TCP-порта и VRAM.
+  3. Запуск нового `llama-server` с теми же флагами, но новым `-m`. stdout/stderr
+     пишутся в `/tmp/llama-server.log` (путь меняется через `MFU_LLAMA_LOG`).
+  4. При провале нового процесса — **автоматический откат на старую модель**
+     и сообщение с хвостом лога.
+- **GigaChat** — облако Сбера. Ключ `GIGACHAT_AUTH_KEY` в `.env`
+  (см. `.env.example`).
 
 ### Отдельные команды
 
@@ -40,7 +71,7 @@ cd ~/агенты/ии\ индекс\ здоровья/mfu_agent && make install
 make install        # установка зависимостей + запуск Qdrant
 make up             # запуск Qdrant (если уже установлено)
 make run            # запуск Streamlit-приложения
-make test           # прогон тестов
+make test           # прогон тестов (pytest)
 make lint           # ruff + mypy
 make format         # автоформатирование кода
 make down           # остановка Qdrant
@@ -48,14 +79,63 @@ make down           # остановка Qdrant
 
 ## Архитектура
 
-Система разделена на 5 функциональных треков:
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — краткий обзор
+- [docs/ARCHITECTURE_FULL.md](docs/ARCHITECTURE_FULL.md) — подробное описание
 
-| Трек | Описание | Документация |
-|------|----------|--------------|
-| A | Формула индекса здоровья | [track_A](docs/track_A_health_index_formula.md) |
-| B | Агент и его инструменты | [track_B](docs/track_B_agent_prompts_and_loop.md) |
-| C | Отчёт (HTML + PDF) | [track_C](docs/track_C_report_layout.md) |
-| D | RAG-база документации | [track_D](docs/track_D_rag_base.md) |
-| E | Ingestion входных файлов | [track_E](docs/track_E_ingestion.md) |
+### Ключевые компоненты
 
-Сводный архитектурный документ: [architecture_overview.md](docs/architecture_overview.md)
+| Компонент | Путь | Назначение |
+|---|---|---|
+| Агент (plan → tool → reflection) | `agent/core.py` | Оркестрация batch-расчёта и chat-режима |
+| 13 tool'ов | `agent/tools/impl.py` | RAG, события, ресурсы, расчёт индекса, сводки отчёта |
+| RAG-поиск | `rag/search.py` | Qdrant + BGE-M3 embedder + BGE-reranker, hybrid retrieval |
+| Формула здоровья | `calculator/` | Детерминированный расчёт по WeightsProfile |
+| LLM-клиент | `llm/client.py` | Автодетект стратегии tool-calling: native / guided_json / **ReAct** |
+| Переключатель локальных моделей | `ui/local_model_manager.py` | Управление `llama-server` из UI: stop → port/VRAM-wait → start → откат |
+| Сборка отчёта | `reporting/report_builder.py` | FleetSummary, DeviceReport, executive_summary через LLM |
+
+### Чат с агентом
+
+Page `4_LLM_Chat`:
+
+- Guardrail — чат недоступен, пока не сформирован отчёт (`st.warning` →
+  «Загрузите данные на странице Загрузка данных»).
+- Каждый запрос пересобирает `ToolDependencies` с актуальным `Report` и
+  `mass_error_analyses` из session, так что три дополнительных tool'а
+  отвечают по **живым данным** текущего отчёта:
+  - `get_current_report_summary` — fleet_summary + executive_summary +
+    счётчики зон.
+  - `list_red_zone_devices(limit, sort_by)` — устройства в красной зоне
+    с моделью, локацией, топ-3 факторами.
+  - `list_mass_errors(limit, severity)` — массовые коды с severity из
+    Qdrant-коллекции `error_codes`, фильтрация `critical/high/medium/low`.
+- Сериализация отчёта в system-prompt — короткая сводка ≤ 6 000 символов,
+  детали берутся через tool-вызовы (не перегружает контекст на 16К-моделях).
+- ReAct-парсер — для local GGUF без native function-calling. Толерантен к
+  форматам «Действие: X Параметры: {...}» в одну или несколько строк,
+  с/без кавычек на имени tool'а, с вложенным JSON.
+- Strip reasoning-артефактов (`<think>`, ChatML `<|im_end|>`) —
+  автоматически в chat-режиме. Nemotron-модели распознаются как reasoning.
+
+## Конфигурация
+
+| Файл | Что настраивает |
+|---|---|
+| `configs/llm_endpoints.yaml` | Endpoint'ы: Локальная, GigaChat. Модели, auth, TLS |
+| `configs/agent_config.yaml` | Лимиты loop'а, chat vs batch-params, memory |
+| `configs/rag_config.yaml` | Qdrant хост/порт, embedding и reranker модели |
+| `configs/report_config.yaml` | Верстка отчёта, пороги зон |
+| `configs/weights/default.yaml` | Весовой профиль формулы здоровья |
+| `configs/field_synonyms.yaml` | Маппинг колонок входных CSV/XLSX |
+| `configs/model_aliases.yaml` | Нормализация названий МФУ (Kyocera, Xerox, HP…) |
+| `configs/error_code_patterns.yaml` | Паттерны распознавания кодов ошибок |
+| `.env` | Секреты: `GIGACHAT_AUTH_KEY` и т.п. (см. `.env.example`) |
+
+## Данные, хранимые локально
+
+- `storage/qdrant/` — индексы Qdrant (монтируется в контейнер)
+- `storage/uploads/` — входные файлы парка
+- `storage/reports/` — сгенерированные HTML/PDF
+- `storage/ingestion_checkpoints/` — чекпоинты фонового анализа
+
+Все `storage/` поддиректории в `.gitignore` — не коммитятся.

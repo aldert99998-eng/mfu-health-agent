@@ -61,6 +61,23 @@ def get_reranker() -> BGEReranker:
     return reranker
 
 
+def _try_get_reranker() -> BGEReranker | None:
+    """Graceful wrapper around ``get_reranker``.
+
+    Reranker может упасть при инициализации (CUDA OOM, отсутствие
+    FlagEmbedding, несовместимая модель). В таких случаях отдаём
+    ``None`` — HybridSearcher тогда пропустит ре-ранкинг.
+    """
+    try:
+        return get_reranker()
+    except Exception as exc:
+        logger.warning(
+            "Reranker init failed, hybrid search будет работать без re-ranking: %s",
+            exc,
+        )
+        return None
+
+
 @st.cache_resource
 def get_hybrid_searcher() -> HybridSearcher:
     """Singleton hybrid searcher wired to Qdrant + embedder + reranker."""
@@ -71,7 +88,7 @@ def get_hybrid_searcher() -> HybridSearcher:
         qdrant_manager=get_qdrant_manager(),
         embedder=get_embedder(),
         config=config,
-        reranker=get_reranker(),
+        reranker=_try_get_reranker(),
     )
 
 

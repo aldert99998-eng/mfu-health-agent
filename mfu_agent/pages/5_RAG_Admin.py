@@ -212,10 +212,18 @@ filter_content_type = filter_cols[1].selectbox(
 )
 search_top_k = filter_cols[2].number_input("Top-K", min_value=1, max_value=50, value=8, key="rag_search_topk")
 
-use_reranker = st.checkbox("Использовать reranker", value=True, key="rag_use_reranker")
+_searcher_for_ui = get_hybrid_searcher()
+_reranker_available = _searcher_for_ui._reranker is not None
+use_reranker = st.checkbox(
+    "Использовать reranker",
+    value=_reranker_available,
+    key="rag_use_reranker",
+    disabled=not _reranker_available,
+    help=None if _reranker_available else "Reranker недоступен (ошибка инициализации: CUDA OOM / FlagEmbedding не установлен). Поиск работает без re-ranking.",
+)
 
 if search_query and st.button("Искать", use_container_width=True):
-    searcher = get_hybrid_searcher()
+    searcher = _searcher_for_ui
     filters: dict[str, Any] = {}
     if filter_model:
         filters["model"] = filter_model

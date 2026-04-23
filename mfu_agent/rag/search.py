@@ -155,6 +155,7 @@ class HybridSearcher:
 
         t_search = time.perf_counter() - t0
 
+        reranker_failed = False
         if use_reranker and self._reranker and results:
             candidates = [
                 {
@@ -166,19 +167,29 @@ class HybridSearcher:
                 }
                 for r in results
             ]
-            scored = self._reranker.rerank(query, candidates, top_n=top_k)
-            results = [
-                SearchResult(
-                    chunk_id=s.chunk_id,
-                    document_id=s.document_id,
-                    text=s.text,
-                    score=s.rerank_score,
-                    dense_score=0.0,
-                    sparse_score=0.0,
-                    payload=s.payload,
+            try:
+                scored = self._reranker.rerank(query, candidates, top_n=top_k)
+                results = [
+                    SearchResult(
+                        chunk_id=s.chunk_id,
+                        document_id=s.document_id,
+                        text=s.text,
+                        score=s.rerank_score,
+                        dense_score=0.0,
+                        sparse_score=0.0,
+                        payload=s.payload,
+                    )
+                    for s in scored
+                ]
+            except Exception as exc:
+                # Не рушим поиск из-за reranker (OOM/init/GPU недоступна).
+                # Возвращаем исходные results, обрезаем до top_k.
+                reranker_failed = True
+                logger.warning(
+                    "Reranker упал, деградируем до hybrid-only: %s",
+                    exc,
                 )
-                for s in scored
-            ]
+                results = results[:top_k]
 
         elapsed = time.perf_counter() - t0
         logger.debug(
@@ -188,7 +199,7 @@ class HybridSearcher:
             elapsed,
             t_search,
             "server" if use_server_fusion else "manual_rrf",
-            "да" if (use_reranker and self._reranker) else "нет",
+            "упал" if reranker_failed else ("да" if (use_reranker and self._reranker) else "нет"),
         )
 
         return results

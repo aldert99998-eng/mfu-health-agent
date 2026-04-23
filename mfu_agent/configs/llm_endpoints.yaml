@@ -1,0 +1,32 @@
+# LLM endpoints configuration.
+# Loaded by state.singletons._resolve_endpoint().
+#
+# SECURITY: do NOT put secrets here. For providers with OAuth auth (e.g.
+# GigaChat) only the ENV-var NAME goes into `auth.auth_key_env` — the actual
+# credential lives in `.env` or the system environment.
+
+endpoints:
+  default:
+    url: "http://localhost:8000/v1"
+    api_key: "dummy-for-local"
+    model: "nvidia_NVIDIA-Nemotron-Nano-12B-v2-Q8_0.gguf"
+    timeout_seconds: 180.0
+    max_retries_network: 3
+    max_retries_invalid: 2
+    display_name: "Локальная"
+
+  gigachat:
+    url: "https://gigachat.devices.sberbank.ru/api/v1"
+    api_key: ""  # unused — access_token подставляется auth-hook'ом
+    model: "GigaChat"  # варианты: GigaChat, GigaChat-Pro, GigaChat-Max, GigaChat-2
+    timeout_seconds: 120.0
+    max_retries_network: 3
+    max_retries_invalid: 2
+    display_name: "GigaChat (облако Сбера)"
+    auth:
+      type: "gigachat_oauth"
+      oauth_url: "https://ngw.devices.sberbank.ru:9443/api/v2/oauth"
+      scope: "GIGACHAT_API_PERS"  # или GIGACHAT_API_CORP / GIGACHAT_API_B2B
+      auth_key_env: "GIGACHAT_AUTH_KEY"
+      verify_tls: false  # dev-дефолт; для prod указать ca_bundle и verify_tls: true
+      ca_bundle: null    # путь к russian_ca.pem, если хотите TLS-проверку

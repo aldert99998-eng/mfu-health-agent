@@ -61,45 +61,6 @@
   <div class="executive-text">{{ report.executive_summary }}</div>
 </section>
 
-{# ── Section 3: Top Patterns ─────────────────────────────────────────────── #}
-{% if report.top_patterns %}
-<section id="top-patterns" class="report-section">
-  <h2>Ключевые паттерны</h2>
-  {% for pattern in report.top_patterns %}
-  <div class="pattern-card pattern-{{ pattern.pattern_type.value }}">
-    <div class="pattern-header">
-      <span class="pattern-badge badge-{{ pattern.pattern_type.value }}">
-        {% if pattern.pattern_type.value == 'mass_issue' %}Массовая проблема
-        {% elif pattern.pattern_type.value == 'location_cluster' %}Кластер по локации
-        {% elif pattern.pattern_type.value == 'critical_single' %}Критическое устройство
-        {% endif %}
-      </span>
-      <span class="pattern-title">{{ pattern.title }}</span>
-    </div>
-    <div class="pattern-body">
-      <p>{{ pattern.explanation }}</p>
-      <div class="pattern-stats">
-        <span>Затронуто: {{ pattern.affected_device_ids|length }} устр.</span>
-        <span>Ср. индекс: {{ '%.0f'|format(pattern.average_index) }}</span>
-      </div>
-      <div class="pattern-devices">
-        {% for did in pattern.affected_device_ids %}
-        <a href="#device-{{ did }}" class="device-link">{{ did }}</a>
-        {% endfor %}
-      </div>
-      {% if pattern.doc_references %}
-      <div class="pattern-docs">
-        {% for doc in pattern.doc_references %}
-        <span class="doc-ref" title="{{ doc.section }}">📄 {{ doc.title }}</span>
-        {% endfor %}
-      </div>
-      {% endif %}
-    </div>
-  </div>
-  {% endfor %}
-</section>
-{% endif %}
-
 {# ── Section 4: Distribution ─────────────────────────────────────────────── #}
 <section id="distribution" class="report-section">
   <h2>Распределение индексов</h2>

@@ -35,12 +35,16 @@ def transform_zabbix(df: pd.DataFrame) -> pd.DataFrame:
     col = _ColFinder(df)
 
     item_key_col = col("item_key")
-    value_col = col("metric_value")
-    device_col = col("id_prn", "hostid", "host_name")
-    clock_col = col("clock", "timestamp")
+    value_col = col("metric_value", "value")
+    device_col = col("id_prn", "hostid", "host_name", "host")
+    clock_col = col("clock", "clock_time", "timestamp", "ts")
 
     if not all([item_key_col, value_col, device_col, clock_col]):
-        logger.warning("Zabbix: не найдены обязательные колонки, пропуск трансформации")
+        logger.warning(
+            "Zabbix: не найдены обязательные колонки, пропуск трансформации. "
+            "item_key=%s value=%s device=%s clock=%s. Доступные: %s",
+            item_key_col, value_col, device_col, clock_col, list(df.columns),
+        )
         return df
 
     inv_model = col("inventory_model")

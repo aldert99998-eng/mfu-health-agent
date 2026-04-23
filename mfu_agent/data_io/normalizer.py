@@ -31,6 +31,7 @@ from data_io.models import (
     SourceFileInfo,
 )
 from data_io.parsers import parse_file
+from data_io.preamble import has_sql_preamble_in_columns, strip_sql_preamble_text
 from data_io.zabbix_transform import is_zabbix_long_format, transform_zabbix
 
 logger = logging.getLogger(__name__)
@@ -51,7 +52,7 @@ FALLBACK_FORMATS = [
 
 UNIX_TS_THRESHOLD = 1_000_000_000
 
-ERROR_CODE_RE = re.compile(r"^[A-Z]{1,3}\d{3,5}$")
+ERROR_CODE_RE = re.compile(r"^(?:[CJEF]\d{3,5}|S\d{3,5}|SC\d{3,4}|\d{2}-\d{3}-\d{2})$")
 XEROX_CODE_RE = re.compile(r"^\d{2}-\d{3}-\d{2}$")
 NUMERIC_DASH_CODE_RE = re.compile(r"\b\d{2}-\d{3}-\d{2}\b")
 ERROR_PREFIX_RE = re.compile(
@@ -96,6 +97,10 @@ class NormalizationResult:
         self.valid_resources = valid_resources
         self.invalid_records = invalid_records
         self.stats = stats
+
+    @property
+    def success(self) -> bool:
+        return len(self.valid_events) > 0 or len(self.valid_resources) > 0
 
 
 # ── Helper functions ────────────────────────────────────────────────────────
@@ -183,13 +188,20 @@ def load_model_aliases(path: Path = MODEL_ALIASES_PATH) -> dict[str, str]:
     return lookup
 
 
+_TRAILING_SERIAL_RE = re.compile(r"\s+[A-Z0-9]{6,}$")
+
+
 def canonicalize_model(raw: str, aliases: dict[str, str]) -> str:
     """Return canonical model name or stripped original."""
     s = raw.strip()
     if not s:
         return s
     key = s.lower()
-    return aliases.get(key, s)
+    if key in aliases:
+        return aliases[key]
+    cleaned = _TRAILING_SERIAL_RE.sub("", s)
+    key2 = cleaned.lower()
+    return aliases.get(key2, cleaned)
 
 
 def detect_resource_unit(values: list[float]) -> tuple[list[float], bool]:
@@ -329,11 +341,15 @@ class Normalizer:
 
             has_error = parsed.get("error_code") is not None
             has_error_desc = parsed.get("error_description") is not None
+            has_error_code_col = "error_code" in reverse_map
             has_resources = any(
                 parsed.get(f) is not None for f in RESOURCE_FIELDS
             )
 
-            is_event = has_error or has_error_desc
+            if has_error_code_col:
+                is_event = has_error or has_error_desc
+            else:
+                is_event = has_error
 
             if is_event:
                 event = self._build_event(parsed, row_num, invalid, raw_data, stats)
@@ -350,7 +366,7 @@ class Normalizer:
                     snap = self._build_snapshot(parsed, row_num, invalid, raw_data, stats)
                     if snap:
                         snapshots_by_device[device_id].append(snap)
-                else:
+                elif has_error_code_col:
                     event = self._build_event(parsed, row_num, invalid, raw_data, stats)
                     if event:
                         events.append(event)
@@ -454,6 +470,12 @@ class Normalizer:
             col = reverse_map.get(str_field)
             if col and pd.notna(row.get(col)):
                 parsed[str_field] = str(row[col]).strip()
+
+        if "error_code" not in parsed and parsed.get("error_description"):
+            extracted = normalize_error_code(parsed["error_description"])
+            if extracted:
+                parsed["error_code"] = extracted
+                stats.error_code_normalized += 1
 
         model_col = reverse_map.get("model")
         if model_col and pd.notna(row.get(model_col)):
@@ -584,14 +606,9 @@ def _extract_metadata_from_df(
         device_meta_map[did] = {"model": model, "vendor": vendor, "location": location}
 
 
-_SQL_KEYWORDS = frozenset({"SELECT", "FROM", "WHERE", "INNER", "JOIN", "UNION"})
-
-
 def _has_sql_preamble(df: pd.DataFrame) -> bool:
     """Check if DataFrame column names contain SQL query text."""
-    col_text = " ".join(str(c) for c in df.columns).upper()
-    tokens = set(re.split(r"[\s(,;]+", col_text[:500]))
-    return bool(tokens & _SQL_KEYWORDS)
+    return has_sql_preamble_in_columns(df.columns)
 
 
 def _strip_sql_lines(file_path: Path) -> Path | None:
@@ -609,27 +626,11 @@ def _strip_sql_lines(file_path: Path) -> Path | None:
     else:
         return None
 
-    lines = text.split("\n")
-    start = 0
-    for i, line in enumerate(lines):
-        stripped = line.strip()
-        if not stripped:
-            start = i + 1
-            continue
-        if stripped.startswith("--"):
-            start = i + 1
-            continue
-        upper_tokens = set(re.split(r"[\s(,;]+", stripped.upper()[:300]))
-        if upper_tokens & _SQL_KEYWORDS:
-            start = i + 1
-            continue
-        break
-
-    if start == 0:
+    cleaned, skipped = strip_sql_preamble_text(text)
+    if skipped == 0:
         return None
 
-    logger.info("SQL-преамбула: пропущено %d строк, перепарсинг файла", start)
-    cleaned = "\n".join(lines[start:])
+    logger.info("SQL-преамбула: пропущено %d строк, перепарсинг файла", skipped)
     clean_path = file_path.with_suffix(".cleaned" + file_path.suffix)
     clean_path.write_text(cleaned, encoding="utf-8")
     return clean_path

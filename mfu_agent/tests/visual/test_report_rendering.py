@@ -28,8 +28,6 @@ from data_io.models import (
     FactorContribution,
     FleetSummary,
     HealthZone,
-    PatternGroup,
-    PatternType,
     Report,
     ResourceState,
 )
@@ -143,24 +141,6 @@ _DISTRIBUTION = [
     DistributionBin(range_start=90, range_end=100, count=2),
 ]
 
-_PATTERNS = [
-    PatternGroup(
-        pattern_type=PatternType.MASS_ISSUE,
-        title="C6000 на TASKalfa 3253ci (2 устройства)",
-        affected_device_ids=["D001", "D002"],
-        average_index=40.0,
-        explanation="Массовый отказ фьюзера на устройствах одной модели. "
-        "Рекомендуется проверить партию фьюзеров.",
-    ),
-    PatternGroup(
-        pattern_type=PatternType.CRITICAL_SINGLE,
-        title="D007 — критический износ",
-        affected_device_ids=["D007"],
-        average_index=25.0,
-        explanation="Устройство в критическом состоянии с множественными проблемами.",
-    ),
-]
-
 VISUAL_REPORT = Report(
     report_id="visual-test-001",
     generated_at=_NOW,
@@ -183,7 +163,6 @@ VISUAL_REPORT = Report(
         "Рекомендуется приоритизировать замену фьюзеров на TASKalfa 3253ci "
         "и провести диагностику D007."
     ),
-    top_patterns=_PATTERNS,
     index_distribution=_DISTRIBUTION,
     devices=_DEVICES,
     calculation_snapshot=CalculationSnapshot(

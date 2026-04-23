@@ -1,0 +1,14 @@
+vendor: Xerox
+model: B8090
+updated_at: '2026-04-23T12:36:23.449999+00:00'
+codes:
+  09-605-00:
+    description: Fuser EOL
+    severity: Critical
+    component: fuser
+    notes: ''
+  07-545-00:
+    description: Tray 2 empty
+    severity: Low
+    component: tray
+    notes: ''

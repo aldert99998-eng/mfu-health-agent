@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 import tempfile
 import threading
 import time
@@ -12,50 +11,21 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-_SQL_KW = {"SELECT", "UNION", "FROM", "WHERE", "INNER", "LEFT", "JOIN", "INSERT", "CREATE"}
+from data_io.preamble import strip_sql_preamble_bytes
 
 
 def _strip_csv_preamble(dest: Path, raw: bytes) -> bytes:
-    """Remove SQL/comment preamble from CSV files before writing to disk."""
+    """Remove SQL/comment preamble from CSV/TSV files before writing to disk."""
     if dest.suffix.lower() not in (".csv", ".tsv"):
         return raw
-
-    try:
-        text = raw.decode("utf-8-sig")
-    except UnicodeDecodeError:
-        try:
-            text = raw.decode("utf-8")
-        except UnicodeDecodeError:
-            return raw
-
-    lines = text.split("\n")
-    start = 0
-    for i, line in enumerate(lines):
-        stripped = line.strip()
-        if not stripped:
-            start = i + 1
-            continue
-        if stripped.startswith("--"):
-            start = i + 1
-            continue
-        tokens = set(re.split(r"[\s(,;]+", stripped.upper()[:300]))
-        if tokens & _SQL_KW:
-            start = i + 1
-            continue
-        break
-
-    if start > 0:
-        cleaned = "\n".join(lines[start:])
-        return cleaned.encode("utf-8")
-    return raw
+    return strip_sql_preamble_bytes(raw)
 
 from state.session import (
+    claim_bg_results_if_any,
+    clear_derived_state,
     get_active_llm_endpoint,
     get_active_weights_profile,
     get_current_report,
-    set_current_factor_store,
-    set_current_health_results,
-    set_current_report,
 )
 
 # ── Background worker ────────────────────────────────────────────────────────
@@ -194,6 +164,7 @@ def _run_analysis_worker(
 
         health_results = []
         traces = {}
+        all_raw_factors: dict[str, list[dict]] = {}
 
         _bg.log(
             "Начинаю расчёт. Для каждого устройства: классификация ошибок через LLM, "
@@ -209,9 +180,10 @@ def _run_analysis_worker(
                 f"событий={n_events}, снимок={snap_info}"
             )
 
-            hr, trace = agent.run_batch_lite(did, context)
+            hr, trace, calc_args = agent.run_batch_lite(did, context)
             health_results.append(hr)
             traces[did] = trace
+            all_raw_factors[did] = calc_args
             progress["calc_done"] = i + 1
             progress["calc_total"] = len(device_ids)
             progress["calc_last"] = f"{did}: индекс {hr.health_index}, зона {hr.zone}"
@@ -222,7 +194,6 @@ def _run_analysis_worker(
                 f"уверенность={hr.confidence:.0%}"
             )
 
-        set_current_health_results(health_results)
         _bg.log(f"Расчёт завершён для всех {len(health_results)} устройств")
 
         # ── Шаг 3: Построение отчёта ────────────────────────────────────
@@ -280,6 +251,7 @@ def _run_analysis_worker(
         progress["_result_report"] = report
         progress["_result_fs"] = fs
         progress["_result_health"] = health_results
+        progress["_result_raw_factors"] = all_raw_factors
 
         _bg.log(f"Отчёт сформирован (ID: {report.report_id})")
         _bg.log("**Анализ завершён!**")
@@ -295,6 +267,17 @@ def _run_analysis_worker(
 st.header("Загрузка данных мониторинга")
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# Блок 0 — Выбор LLM-провайдера (ДО загрузки файла)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+from ui.endpoint_selector import get_cached_ping_ok, render_endpoint_selector
+
+_selected_endpoint = render_endpoint_selector(
+    location="main", key_suffix="upload",
+)
+st.divider()
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # Блок 1 — Загрузка файла с данными устройств
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -308,14 +291,27 @@ uploaded = st.file_uploader(
 
 # ── Check if background analysis is running ─────────────────────────────────
 
-def _render_log() -> None:
+def _render_log(*, running: bool = False) -> None:
     if not _bg.log_lines:
         return
-    with st.expander("Журнал операций", expanded=True):
+    header_cols = st.columns([5, 1])
+    with header_cols[0]:
+        icon = "⏳" if running else "📋"
+        st.markdown(f"**{icon} Журнал операций** — {len(_bg.log_lines)} строк")
+    with header_cols[1]:
+        if not running and st.button("Очистить", key="clear_log"):
+            _bg.log_lines.clear()
+            st.rerun()
+
+    with st.container(height=400, border=True):
         st.markdown("\n\n".join(_bg.log_lines))
 
 
-if _bg.thread is not None and _bg.thread.is_alive():
+# Snapshot thread state once per run — prevents a race where the thread
+# finishes mid-render and the log gets drawn twice.
+is_running = _bg.thread is not None and _bg.thread.is_alive()
+
+if is_running:
     st.info("⏳ Идёт анализ...")
 
     step = _bg.progress.get("step", "")
@@ -326,51 +322,54 @@ if _bg.thread is not None and _bg.thread.is_alive():
         total = _bg.progress.get("calc_total", 1)
         st.progress(done / total if total else 0, text=step_label)
 
-    _render_log()
+    _render_log(running=True)
 
     time.sleep(1)
     st.rerun()
 
-elif _bg.thread is not None and not _bg.thread.is_alive():
-    status = _bg.progress.get("status")
+else:
+    if _bg.thread is not None:
+        status = _bg.progress.get("status")
+        if status == "complete":
+            claim_bg_results_if_any()
+            st.success(
+                f"Анализ завершён — "
+                f"устройств: {_bg.progress.get('devices_count', '?')}, "
+                f"событий: {_bg.progress.get('events_count', '?')}, "
+                f"снимков: {_bg.progress.get('snapshots_count', '?')}"
+            )
+            if _bg.progress.get("warnings"):
+                for w in _bg.progress["warnings"]:
+                    st.warning(w)
+        elif status == "error":
+            for err in _bg.progress.get("errors", ["Неизвестная ошибка"]):
+                st.error(err)
 
-    if status == "complete":
-        report_obj = _bg.progress.get("_result_report")
-        fs_obj = _bg.progress.get("_result_fs")
-        health_obj = _bg.progress.get("_result_health")
-
-        if report_obj and fs_obj and health_obj:
-            set_current_factor_store(fs_obj)
-            set_current_health_results(health_obj)
-            set_current_report(report_obj)
-
-        st.success(
-            f"Анализ завершён — "
-            f"устройств: {_bg.progress.get('devices_count', '?')}, "
-            f"событий: {_bg.progress.get('events_count', '?')}, "
-            f"снимков: {_bg.progress.get('snapshots_count', '?')}"
-        )
-        if _bg.progress.get("warnings"):
-            for w in _bg.progress["warnings"]:
-                st.warning(w)
-
-    elif status == "error":
-        for err in _bg.progress.get("errors", ["Неизвестная ошибка"]):
-            st.error(err)
-
-    _render_log()
-
-    _bg.thread = None
-    _bg.progress.clear()
+    if _bg.log_lines:
+        _render_log(running=False)
 
 # ── Start button ─────────────────────────────────────────────────────────────
 
 is_running = _bg.thread is not None and _bg.thread.is_alive()
 
+_endpoint_ok = get_cached_ping_ok(_selected_endpoint)
+_start_disabled = is_running or not _endpoint_ok
+
+if uploaded and not _endpoint_ok:
+    st.warning(
+        f"🔴 Эндпоинт `{_selected_endpoint}` недоступен — нажмите «Проверить» "
+        "в блоке выбора провайдера или выберите другой.",
+    )
+
 if uploaded and not is_running and st.button(
-    "Загрузить и рассчитать", type="primary", use_container_width=True
+    "Загрузить и рассчитать",
+    type="primary",
+    use_container_width=True,
+    disabled=_start_disabled,
 ):
+    clear_derived_state()
     _bg.progress.clear()
+    _bg.thread = None
     _bg.progress["status"] = "running"
     _bg.log_lines.clear()
 

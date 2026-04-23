@@ -1,8 +1,8 @@
 """Report assembly — Track C, Phase 6.1.
 
 Builds a Report object from HealthResults, generates executive summary
-via Agent, detects fleet-wide patterns, and delegates HTML/PDF rendering
-to Jinja2 + WeasyPrint (Phase 6.2–6.3).
+via Agent, and delegates HTML/PDF rendering to Jinja2 + WeasyPrint
+(Phase 6.2–6.3).
 """
 
 from __future__ import annotations
@@ -24,8 +24,6 @@ from data_io.models import (
     DistributionBin,
     FleetSummary,
     HealthResult,
-    PatternGroup,
-    PatternType,
     Report,
     ResourceState,
     SourceFileInfo,
@@ -74,10 +72,6 @@ class ReportBuilder:
             fleet_summary, health_results,
         )
 
-        top_patterns = self._detect_patterns(
-            health_results, factor_store,
-        )
-
         index_distribution = self._build_distribution(health_results)
 
         category_breakdown = self._build_category_breakdown(
@@ -104,7 +98,6 @@ class ReportBuilder:
             ).get("window_days", 30),
             fleet_summary=fleet_summary,
             executive_summary=executive_summary,
-            top_patterns=top_patterns,
             index_distribution=index_distribution,
             category_breakdown=category_breakdown,
             devices=devices,
@@ -272,7 +265,6 @@ class ReportBuilder:
             fleet_summary_json=json.dumps(fleet_dict, ensure_ascii=False, indent=2, default=str),
             worst_devices_json=json.dumps(worst_data, ensure_ascii=False, indent=2),
             top_error_codes_json=json.dumps(top_codes, ensure_ascii=False, indent=2),
-            top_patterns_json="[]",
         )
 
         try:
@@ -306,147 +298,6 @@ class ReportBuilder:
             f"Средний индекс здоровья: {fs.average_index}. "
             f"В зелёной зоне: {green}, жёлтой: {yellow}, красной: {red}."
         )
-
-    # ── Pattern Detection ────────────────────────────────────────────────
-
-    def _detect_patterns(
-        self,
-        results: list[HealthResult],
-        factor_store: FactorStore,
-    ) -> list[PatternGroup]:
-        if len(results) < 2:
-            return []
-
-        patterns: list[PatternGroup] = []
-        cfg = self._config.top_patterns
-
-        patterns.extend(self._detect_mass_issues(results, factor_store, cfg.mass_issue_min_devices))
-        patterns.extend(self._detect_location_clusters(results, factor_store))
-        patterns.extend(self._detect_critical_singles(results, cfg))
-
-        seen_devices: set[str] = set()
-        deduped: list[PatternGroup] = []
-        for p in sorted(patterns, key=lambda x: len(x.affected_device_ids), reverse=True):
-            new_devices = set(p.affected_device_ids) - seen_devices
-            if new_devices:
-                seen_devices.update(new_devices)
-                deduped.append(p)
-
-        return deduped[: cfg.max_count]
-
-    def _detect_mass_issues(
-        self,
-        results: list[HealthResult],
-        factor_store: FactorStore,
-        min_devices: int,
-    ) -> list[PatternGroup]:
-        model_error_devices: dict[tuple[str, str], list[str]] = defaultdict(list)
-
-        for r in results:
-            meta = factor_store.get_device_metadata(r.device_id)
-            model = meta.model if meta and meta.model else None
-            if not model:
-                continue
-            for fc in r.factor_contributions:
-                label = fc.label.split(" (")[0] if " (" in fc.label else fc.label
-                model_error_devices[(model, label)].append(r.device_id)
-
-        patterns: list[PatternGroup] = []
-        for (model, error_label), device_ids in model_error_devices.items():
-            if len(device_ids) < min_devices:
-                continue
-            affected_results = [r for r in results if r.device_id in device_ids]
-            avg_index = statistics.mean(r.health_index for r in affected_results)
-            patterns.append(PatternGroup(
-                pattern_type=PatternType.MASS_ISSUE,
-                title=f"{error_label} на {model} ({len(device_ids)} уст.)"[:60],
-                affected_device_ids=device_ids,
-                average_index=round(avg_index, 1),
-                explanation=(
-                    f"Ошибка «{error_label}» обнаружена на {len(device_ids)} "
-                    f"устройствах модели {model}. Средний индекс: {avg_index:.0f}."
-                ),
-            ))
-
-        return patterns
-
-    def _detect_location_clusters(
-        self,
-        results: list[HealthResult],
-        factor_store: FactorStore,
-    ) -> list[PatternGroup]:
-        location_devices: dict[str, list[HealthResult]] = defaultdict(list)
-
-        for r in results:
-            meta = factor_store.get_device_metadata(r.device_id)
-            loc = meta.location if meta and meta.location else None
-            if not loc:
-                continue
-            location_devices[loc].append(r)
-
-        patterns: list[PatternGroup] = []
-        for loc, loc_results in location_devices.items():
-            if len(loc_results) < 3:
-                continue
-            problem_count = sum(
-                1
-                for r in loc_results
-                if (r.zone if isinstance(r.zone, str) else r.zone.value) in ("red", "yellow")
-            )
-            if problem_count < len(loc_results) * 0.6:
-                continue
-            avg_index = statistics.mean(r.health_index for r in loc_results)
-            device_ids = [r.device_id for r in loc_results]
-            patterns.append(PatternGroup(
-                pattern_type=PatternType.LOCATION_CLUSTER,
-                title=f"Проблемы в локации «{loc}» ({len(device_ids)} уст.)"[:60],
-                affected_device_ids=device_ids,
-                average_index=round(avg_index, 1),
-                explanation=(
-                    f"В локации «{loc}» {problem_count} из {len(loc_results)} "
-                    f"устройств в жёлтой или красной зоне. "
-                    f"Средний индекс: {avg_index:.0f}."
-                ),
-            ))
-
-        return patterns
-
-    @staticmethod
-    def _detect_critical_singles(
-        results: list[HealthResult],
-        cfg: Any,
-    ) -> list[PatternGroup]:
-        patterns: list[PatternGroup] = []
-        for r in results:
-            is_critical = (
-                r.health_index < cfg.critical_single_index_threshold
-                or r.confidence < cfg.critical_single_confidence_threshold
-            )
-            if not is_critical:
-                continue
-
-            reason_parts = []
-            if r.health_index < cfg.critical_single_index_threshold:
-                reason_parts.append(f"индекс {r.health_index}")
-            if r.confidence < cfg.critical_single_confidence_threshold:
-                reason_parts.append(f"confidence {r.confidence}")
-
-            top_factor = (
-                r.factor_contributions[0].label if r.factor_contributions else "—"
-            )
-            patterns.append(PatternGroup(
-                pattern_type=PatternType.CRITICAL_SINGLE,
-                title=f"Критическое: {r.device_id} ({', '.join(reason_parts)})"[:60],
-                affected_device_ids=[r.device_id],
-                average_index=float(r.health_index),
-                explanation=(
-                    f"Устройство {r.device_id} требует внимания: "
-                    f"{', '.join(reason_parts)}. "
-                    f"Основной фактор: {top_factor}."
-                ),
-            ))
-
-        return patterns
 
     # ── Distribution ─────────────────────────────────────────────────────
 

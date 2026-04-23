@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, TypeVar
+from typing import Any, Literal, TypeVar
 
 import yaml
 from pydantic import BaseModel, Field, field_validator
@@ -43,8 +43,28 @@ class ConfigValidationError(Exception):
 # ── LLM endpoint config (track B) ────────────────────────────────────────────
 
 
+class GigaChatAuthConfig(BaseModel):
+    """OAuth-based auth for the GigaChat provider.
+
+    The `auth_key` itself is NEVER stored in YAML — only the name of the ENV
+    variable that holds it. The provider reads it at first-use time.
+    """
+
+    type: Literal["gigachat_oauth"]
+    oauth_url: str = "https://ngw.devices.sberbank.ru:9443/api/v2/oauth"
+    scope: str = "GIGACHAT_API_PERS"
+    auth_key_env: str = "GIGACHAT_AUTH_KEY"
+    verify_tls: bool = False
+    ca_bundle: str | None = None
+
+
 class LLMEndpointConfig(BaseModel):
-    """Single OpenAI-compatible LLM endpoint."""
+    """Single OpenAI-compatible LLM endpoint.
+
+    When ``auth`` is ``None`` the endpoint uses the plain ``api_key`` (local
+    llama-server / vLLM path). When ``auth`` is set, ``LLMClient`` swaps in a
+    token provider that refreshes an OAuth access token periodically.
+    """
 
     url: str = "http://localhost:8000/v1"
     api_key: str = "dummy-for-local"
@@ -53,6 +73,8 @@ class LLMEndpointConfig(BaseModel):
     timeout_seconds: float = 120.0
     max_retries_network: int = 3
     max_retries_invalid: int = 2
+    display_name: str = ""
+    auth: GigaChatAuthConfig | None = None
 
 
 # ── Agent config models (track B) ────────────────────────────────────────────
@@ -161,15 +183,6 @@ class ReportThresholds(BaseModel):
         return v
 
 
-class TopPatternsConfig(BaseModel):
-    """Configuration for top-N pattern detection."""
-
-    max_count: int = Field(default=5, ge=1)
-    mass_issue_min_devices: int = Field(default=3, ge=2)
-    critical_single_index_threshold: int = Field(default=20, ge=1, le=100)
-    critical_single_confidence_threshold: float = Field(default=0.4, ge=0.0, le=1.0)
-
-
 class DisplayConfig(BaseModel):
     """Display limits and history depth."""
 
@@ -198,7 +211,6 @@ class ReportConfig(BaseModel):
 
     rendering: RenderingConfig = Field(default_factory=RenderingConfig)
     thresholds: ReportThresholds = Field(default_factory=ReportThresholds)
-    top_patterns: TopPatternsConfig = Field(default_factory=TopPatternsConfig)
     display: DisplayConfig = Field(default_factory=DisplayConfig)
     category_breakdown_auto: list[CategoryBreakdownRule] = Field(default_factory=list)
     agent_trace: AgentTraceConfig = Field(default_factory=AgentTraceConfig)

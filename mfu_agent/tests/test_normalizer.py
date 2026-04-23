@@ -134,8 +134,8 @@ class TestNormalizeErrorCode:
     def test_empty_returns_none(self) -> None:
         assert normalize_error_code("") is None
 
-    def test_three_letter_five_digit(self) -> None:
-        assert normalize_error_code("ABC12345") == "ABC12345"
+    def test_three_letter_five_digit_unsupported(self) -> None:
+        assert normalize_error_code("ABC12345") is None
 
     def test_too_many_letters_returns_none(self) -> None:
         assert normalize_error_code("ABCD1234") is None
@@ -552,7 +552,8 @@ class TestNormalizationStats:
 
 
 class TestRowWithoutErrorOrResource:
-    def test_plain_row_becomes_event(self, aliases_path: Path) -> None:
+    def test_plain_row_is_silently_skipped(self, aliases_path: Path) -> None:
+        """Row with only device_id+timestamp+status (no error, no resource) is dropped."""
         df = pd.DataFrame({
             "id": ["D001"],
             "ts": ["2024-03-15 10:00:00"],
@@ -562,6 +563,5 @@ class TestRowWithoutErrorOrResource:
         norm = Normalizer(model_aliases_path=aliases_path)
         result = norm.normalize(df, mapping)
 
-        assert len(result.valid_events) == 1
-        assert result.valid_events[0].status == "active"
+        assert len(result.valid_events) == 0
         assert len(result.valid_resources) == 0

@@ -12,7 +12,7 @@ down:
 	docker compose down
 
 run:
-	.venv/bin/streamlit run app.py
+	.venv/bin/streamlit run app.py --server.port 8504 --server.headless true
 
 test:
 	.venv/bin/pytest -v

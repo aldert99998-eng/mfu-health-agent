@@ -75,10 +75,15 @@ class TestSecurity:
             f"TC-NF-050 FAIL — Hardcoded secrets found:\n" + "\n".join(violations)
         )
 
-    # TC-NF-051 — API keys not logged
+    # TC-NF-051 — API keys not logged.
+    # The pattern is scoped to a single logger call: it matches
+    # ``logger.<method>(`` followed by any chars that are NOT a closing
+    # paren (spans newlines for multi-line calls), then a secret-word.
+    # This avoids the DOTALL-greedy pitfall where a *later* field-name
+    # elsewhere in the file (e.g. ``body.get("access_token")``) would be
+    # falsely attributed to an earlier logger call.
     _LOG_SECRET_RE = re.compile(
-        r"logger\.\w+\(.*\b(api_key|API_KEY|secret|password|auth_token)\b",
-        re.DOTALL,
+        r"logger\.\w+\([^)]*\b(api_key|API_KEY|secret|password|auth_token|access_token|auth_key)\b",
     )
 
     def test_tc_nf_051_api_keys_not_logged(self):

@@ -78,14 +78,6 @@ class ReflectionAction(StrEnum):
     FLAG_FOR_REVIEW = "flag_for_review"
 
 
-class PatternType(StrEnum):
-    """Fleet-wide problem pattern classification."""
-
-    MASS_ISSUE = "mass_issue"
-    LOCATION_CLUSTER = "location_cluster"
-    CRITICAL_SINGLE = "critical_single"
-
-
 class FileFormat(StrEnum):
     """Supported input file formats."""
 
@@ -179,6 +171,53 @@ class HealthResult(BaseModel):
     calculation_snapshot: dict[str, Any] = Field(default_factory=dict)
     calculated_at: datetime
     reflection_notes: str | None = None
+
+
+class DeepDeviceAnalysis(BaseModel):
+    """Full LLM analysis of a single red-zone device (run_batch output)."""
+
+    model_config = ConfigDict(frozen=False)
+
+    device_id: str
+    health_index_original: int = Field(ge=1, le=100)
+    health_index_llm: int | None = None
+    root_cause: str = ""
+    recommended_action: str = ""
+    explanation: str = ""
+    related_codes: list[str] = Field(default_factory=list)
+    reflection_verdict: str = ""
+    llm_calls: int = 0
+    duration_ms: int = 0
+    analyzed_at: datetime
+    error: str | None = None
+
+
+class MassErrorAnalysis(BaseModel):
+    """LLM analysis of one mass error code across the fleet."""
+
+    model_config = ConfigDict(frozen=False)
+
+    error_code: str
+    description: str = ""
+    affected_device_count: int = 0
+    total_occurrences: int = 0
+    is_systemic: bool = False
+
+    # Structured explanation fields (each ≤300 chars)
+    what_is_this: str = ""
+    why_this_pattern: str = ""
+    business_impact: str = ""
+    immediate_action: str = ""
+    long_term_action: str = ""
+    indicators_to_watch: list[str] = Field(default_factory=list)
+
+    # Legacy / back-compat (populated from the new fields)
+    likely_cause: str = ""
+    recommended_action: str = ""
+    explanation: str = ""
+
+    analyzed_at: datetime
+    error: str | None = None
 
 
 # ── Track A: WeightsProfile (nested) ──────────────────────────────────────────
@@ -302,6 +341,7 @@ class Trace(BaseModel):
     total_tokens: int = 0
     attempts: int = Field(default=1, ge=1, le=2)
     flagged_for_review: bool = False
+    rag_hits: list[dict[str, Any]] = Field(default_factory=list)
 
     def to_json(self) -> str:
         return self.model_dump_json(indent=2)
@@ -408,14 +448,6 @@ class ChatContext(BaseModel):
 # ── Track C: Report ────────────────────────────────────────────────────────────
 
 
-class DocReference(BaseModel):
-    """Reference to service documentation."""
-
-    title: str
-    section: str
-    url: str | None = None
-
-
 class ResourceState(BaseModel):
     """Current resource levels for a device."""
 
@@ -442,19 +474,6 @@ class FleetSummary(BaseModel):
     zone_counts: dict[str, int]
     average_confidence: float
     delta_vs_previous: float | None = None
-
-
-class PatternGroup(BaseModel):
-    """Group of devices sharing a common problem pattern."""
-
-    model_config = ConfigDict(frozen=False, arbitrary_types_allowed=True)
-
-    pattern_type: PatternType
-    title: str = Field(max_length=60)
-    affected_device_ids: list[str]
-    average_index: float
-    explanation: str
-    doc_references: list[DocReference] = Field(default_factory=list)
 
 
 class DeviceReport(BaseModel):
@@ -557,7 +576,6 @@ class Report(BaseModel):
     analysis_window_days: int
     fleet_summary: FleetSummary
     executive_summary: str = ""
-    top_patterns: list[PatternGroup] = Field(default_factory=list, max_length=5)
     index_distribution: list[DistributionBin] = Field(default_factory=list)
     category_breakdown: CategoryBreakdown | None = None
     devices: list[DeviceReport] = Field(default_factory=list)
@@ -578,7 +596,7 @@ class NormalizedEvent(BaseModel):
 
     device_id: str = Field(min_length=1, max_length=100)
     timestamp: datetime
-    error_code: str | None = Field(default=None, pattern=r"^[A-Z]{1,3}\d{3,5}$")
+    error_code: str | None = Field(default=None, pattern=r"^([CJEF]\d{3,5}|S\d{3,5}|SC\d{3,4}|\d{2}-\d{3}-\d{2})$")
     error_description: str | None = None
     model: str | None = None
     vendor: str | None = None
@@ -661,8 +679,6 @@ __all__ = [
     "ContextModifier",
     "DeviceReport",
     "DistributionBin",
-    # Track C: Report
-    "DocReference",
     # Track A: Health Index
     "Factor",
     "FactorContribution",
@@ -676,8 +692,6 @@ __all__ = [
     "LearnedPattern",
     # Track E: Ingestion
     "NormalizedEvent",
-    "PatternGroup",
-    "PatternType",
     "RAGSummary",
     "ReflectionAction",
     "ReflectionIssue",

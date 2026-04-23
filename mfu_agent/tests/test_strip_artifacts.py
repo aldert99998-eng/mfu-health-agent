@@ -26,6 +26,36 @@ class TestStripReasoningArtifacts:
         assert "Ответ после тега." in result
         assert "<think>" not in result
 
+    def test_strip_chatml_turn_boundary_and_followup(self) -> None:
+        """ChatML leak: model keeps talking past <|im_end|> with a fake assistant turn."""
+        raw = (
+            "Вот 3 устройства: DEV001, DEV002, DEV003. <|im_end|>\n"
+            "<|im_start|>assistant\n<think>hmm, continue</think>Ещё текст"
+        )
+        result = LLMClient.strip_reasoning_artifacts(raw)
+        assert "DEV001" in result
+        assert "<|im_end|>" not in result
+        assert "<|im_start|>" not in result
+        assert "Ещё текст" not in result
+        assert "<think>" not in result
+
+    def test_strip_lingering_special_tokens(self) -> None:
+        raw = "Answer.<|im_start|>extra<|im_end|>"
+        result = LLMClient.strip_reasoning_artifacts(raw)
+        assert result == "Answer."
+
+
+class TestReasoningModelDetection:
+    def test_nemotron_is_reasoning(self) -> None:
+        from llm.client import is_reasoning_model
+        assert is_reasoning_model("nvidia_NVIDIA-Nemotron-Nano-12B-v2-Q8_0.gguf")
+        assert is_reasoning_model("Nemotron")
+
+    def test_regular_model_is_not_reasoning(self) -> None:
+        from llm.client import is_reasoning_model
+        assert not is_reasoning_model("GigaChat-Pro")
+        assert not is_reasoning_model("gpt-4o")
+
     def test_strip_action_final_answer_json_dict(self) -> None:
         raw = '{"action": "final_answer", "final_answer": {"summary": "Текст.", "risk_areas": "Риски.", "recommendations": "Рек."}}'
         result = LLMClient.strip_reasoning_artifacts(raw)
@@ -91,7 +121,6 @@ class TestExecutiveSummaryPrompt:
         assert "{fleet_summary_json}" in content
         assert "{worst_devices_json}" in content
         assert "{top_error_codes_json}" in content
-        assert "{top_patterns_json}" in content
 
     def test_prompt_forbids_think_tags(self) -> None:
         from pathlib import Path

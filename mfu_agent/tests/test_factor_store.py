@@ -141,11 +141,11 @@ class TestWindowedQueries:
         store.add_events("D001", [
             _event("D001", 1, "C6000"),
             _event("D001", 3, "C6000"),
-            _event("D001", 5, "A1001"),
+            _event("D001", 5, "E1001"),
             _event("D001", 20, "C6000"),
         ])
         assert store.count_repetitions("D001", "C6000", window_days=14) == 2
-        assert store.count_repetitions("D001", "A1001", window_days=14) == 1
+        assert store.count_repetitions("D001", "E1001", window_days=14) == 1
         assert store.count_repetitions("D001", "C6000", window_days=2) == 1
 
     def test_count_repetitions_no_match(self) -> None:
@@ -201,7 +201,7 @@ class TestSerialization:
         store = FactorStore(reference_time=NOW)
         store.add_events("D001", [
             _event("D001", 1, "C6000"),
-            _event("D001", 10, "A1001"),
+            _event("D001", 10, "E1001"),
         ])
         store.add_events("D002", [_event("D002", 5)])
         store.set_resources("D001", _snapshot("D001"))

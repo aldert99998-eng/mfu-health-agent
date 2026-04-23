@@ -1,4 +1,16 @@
-"""MFU Health Agent — Streamlit entry point."""
+"""MFU Health Agent — Streamlit entry point.
+
+Uses st.navigation to build the sidebar explicitly so the entry-file
+doesn't appear as a separate 'app' item.
+"""
+
+# Load .env (optional dependency; if missing we degrade gracefully).
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv()
+except ImportError:  # pragma: no cover — python-dotenv is a declared dep
+    pass
 
 import streamlit as st
 
@@ -8,20 +20,28 @@ st.set_page_config(
     layout="wide",
 )
 
-st.title("МФУ Индекс Здоровья")
-st.caption("ИИ-агент мониторинга парка многофункциональных устройств")
+from state.session import get_current_report  # noqa: E402
 
-from state.session import (  # noqa: E402
-    get_active_llm_endpoint,
-    get_current_factor_store,
-    get_current_report,
-)
+_has_report = get_current_report() is not None
 
-endpoint = get_active_llm_endpoint()
-fs = get_current_factor_store()
-report = get_current_report()
+pages = [
+    st.Page(
+        "pages/1_Загрузка_данных.py",
+        title="Загрузка данных",
+        icon="📤",
+        default=not _has_report,
+    ),
+    st.Page(
+        "pages/2_Dashboard.py",
+        title="Dashboard",
+        icon="📊",
+        default=_has_report,
+    ),
+    st.Page("pages/3_Weights.py", title="Веса", icon="⚖️"),
+    st.Page("pages/4_LLM_Chat.py", title="Чат с агентом", icon="💬"),
+    st.Page("pages/5_Error_Codes.py", title="Справочник ошибок", icon="🔧"),
+    st.Page("pages/5_RAG_Admin.py", title="RAG админка", icon="📚"),
+]
 
-col1, col2, col3 = st.columns(3)
-col1.metric("LLM Endpoint", endpoint)
-col2.metric("FactorStore", "загружен" if fs else "—")
-col3.metric("Отчёт", "готов" if report else "—")
+pg = st.navigation(pages)
+pg.run()

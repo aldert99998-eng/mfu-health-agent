@@ -29,8 +29,6 @@ from data_io.models import (
     FleetSummary,
     HealthResult,
     HealthZone,
-    PatternGroup,
-    PatternType,
     Report,
     ResourceState,
     SourceFileInfo,
@@ -240,45 +238,6 @@ class TestTCC003CalculationSnapshot:
         assert report.analysis_window_days == 30
 
 
-# ── TC-C-005: Pattern detection — mass issue ────────────────────────────────
-
-
-class TestTCC005PatternDetectionMassIssue:
-    """Create 10 devices with same error C6000, verify mass_issue detected."""
-
-    def test_mass_issue_with_10_devices(self) -> None:
-        results = [
-            _hr(f"D{i:03d}", 30, error_label="C6000")
-            for i in range(10)
-        ]
-        models = {f"D{i:03d}": "Kyocera 3253ci" for i in range(10)}
-        report = _build_report(results, models=models)
-
-        mass_patterns = [
-            p for p in report.top_patterns
-            if p.pattern_type == PatternType.MASS_ISSUE
-        ]
-        assert len(mass_patterns) >= 1, "Expected at least one MASS_ISSUE pattern"
-        pattern = mass_patterns[0]
-        assert len(pattern.affected_device_ids) == 10
-        assert "C6000" in pattern.title
-
-    def test_mass_issue_not_triggered_below_threshold(self) -> None:
-        # Default threshold is 3; only 2 devices with same error+model
-        results = [
-            _hr("D001", 30, error_label="C6000"),
-            _hr("D002", 30, error_label="C6000"),
-        ]
-        models = {"D001": "ModelA", "D002": "ModelA"}
-        report = _build_report(results, models=models)
-
-        mass_patterns = [
-            p for p in report.top_patterns
-            if p.pattern_type == PatternType.MASS_ISSUE
-        ]
-        assert len(mass_patterns) == 0
-
-
 # ── TC-C-021: HTML contains all mandatory sections ──────────────────────────
 
 
@@ -304,17 +263,6 @@ class TestTCC021HTMLMandatorySections:
         ]
         for section_id in mandatory_ids:
             assert section_id in html, f"Missing section: {section_id}"
-
-    def test_patterns_section_when_patterns_exist(self) -> None:
-        results = [
-            _hr(f"D{i:03d}", 30, error_label="C6000")
-            for i in range(5)
-        ]
-        models = {f"D{i:03d}": "Kyocera 3253ci" for i in range(5)}
-        report = _build_report(results, models=models)
-        builder = _builder()
-        html = builder.render_html(report)
-        assert 'id="top-patterns"' in html
 
     def test_category_breakdown_section_present(self) -> None:
         results = [_hr("D001", 80), _hr("D002", 60)]
@@ -565,16 +513,6 @@ class TestTCC100PydanticValidation:
                 confidence=0.85,
                 zone=HealthZone.GREEN,
                 confidence_zone=ConfidenceZone.HIGH,
-            )
-
-    def test_pattern_group_title_max_length(self) -> None:
-        with pytest.raises(ValidationError):
-            PatternGroup(
-                pattern_type=PatternType.MASS_ISSUE,
-                title="X" * 61,  # exceeds max_length=60
-                affected_device_ids=["D001"],
-                average_index=50.0,
-                explanation="test",
             )
 
     def test_report_roundtrip_json(self) -> None:

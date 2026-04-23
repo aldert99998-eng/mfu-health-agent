@@ -13,10 +13,12 @@ device_id:
   - device_sn
   - printer_id
   - prn_id
-  - id_prn
   - id_printer
   - mfp_id
   - id_mfp
+  - host_name
+  - hostname
+  - host
   - id_устройства
   - идентификатор
   - серийный_номер
@@ -60,6 +62,7 @@ error_description:
   - description
   - error_text
   - message
+  - metric_value
   - описание
   - описание_ошибки
   - текст_ошибки
@@ -69,6 +72,8 @@ model:
   - model
   - device_model
   - printer_model
+  - host_display_name
+  - display_name
   - модель
   - модель_устройства
 

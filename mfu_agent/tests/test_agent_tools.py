@@ -1,8 +1,8 @@
 """Phase 5.2 verification — agent tools unit tests.
 
 Checks:
-1. Each of the 9 tools — unit test with mocked dependencies.
-2. JSON schemas of all 9 tools validate via jsonschema.
+1. Each tool — unit test with mocked dependencies.
+2. JSON schemas validate via jsonschema.
 3. execute of unknown tool → ToolRegistryError in result.
 """
 
@@ -21,10 +21,13 @@ from agent.tools.impl import (
     ClassifyErrorSeverityTool,
     CountErrorRepetitionsTool,
     FindSimilarDevicesTool,
+    GetCurrentReportSummaryTool,
     GetDeviceEventsTool,
     GetDeviceHistoryTool,
     GetDeviceResourcesTool,
     GetFleetStatisticsTool,
+    ListMassErrorsTool,
+    ListRedZoneDevicesTool,
     SearchServiceDocsTool,
     ToolDependencies,
     register_all_tools,
@@ -122,6 +125,7 @@ def _make_factor_store():
         model="MX-3071" if did != "DEV003" else "MX-4071",
         location="Office-A" if did != "DEV003" else "Office-B",
     )
+    fs.reference_time = datetime(2026, 4, 15, tzinfo=UTC)
     return fs
 
 
@@ -167,14 +171,17 @@ TOOL_NAMES = [
     "find_similar_devices",
     "get_device_history",
     "get_learned_patterns",
+    "get_current_report_summary",
+    "list_red_zone_devices",
+    "list_mass_errors",
 ]
 
 
 class TestSchemaValidation:
-    """JSON schemas of all 10 tools validate via jsonschema."""
+    """JSON schemas of all registered tools validate via jsonschema."""
 
-    def test_registry_has_all_10_tools(self, registry_with_tools) -> None:
-        assert len(registry_with_tools) == 10
+    def test_registry_has_all_13_tools(self, registry_with_tools) -> None:
+        assert len(registry_with_tools) == 13
         for name in TOOL_NAMES:
             assert name in registry_with_tools
 
@@ -416,10 +423,10 @@ class TestGetDeviceHistoryTool:
 
 
 class TestRegisterAllTools:
-    def test_registers_exactly_10(self, deps) -> None:
+    def test_registers_exactly_13(self, deps) -> None:
         reg = ToolRegistry()
         register_all_tools(reg, deps)
-        assert len(reg) == 10
+        assert len(reg) == 13
         assert sorted(reg.list_tools()) == sorted(TOOL_NAMES)
 
     def test_duplicate_registration_raises(self, deps) -> None:
@@ -428,3 +435,314 @@ class TestRegisterAllTools:
         register_all_tools(reg, deps)
         with pytest.raises(ToolRegistryError, match="already registered"):
             register_all_tools(reg, deps)
+
+
+# ── 5. Report-oriented tools (chat support) ──────────────────────────────────
+
+
+def _make_device_report(
+    device_id: str,
+    *,
+    zone: str = "red",
+    health_index: int = 25,
+    model: str | None = "Xerox B8090",
+    location: str | None = "Office-A",
+    top_problem_tag: str = "fuser_failure",
+    factors: list[tuple[str, float, str]] | None = None,
+):
+    """Build a minimal DeviceReport using real models (no mocks)."""
+    from data_io.models import (
+        ConfidenceZone,
+        DeviceReport,
+        FactorContribution,
+        HealthZone,
+    )
+
+    zone_map = {"red": HealthZone.RED, "yellow": HealthZone.YELLOW, "green": HealthZone.GREEN}
+    fc = [
+        FactorContribution(label=lbl, penalty=pen, S=pen, R=1.0, C=1.0, A=1.0, source=src)
+        for lbl, pen, src in (factors or [("fuser_failure", 40.0, "events")])
+    ]
+    return DeviceReport(
+        device_id=device_id,
+        model=model,
+        location=location,
+        health_index=health_index,
+        confidence=0.85,
+        zone=zone_map[zone],
+        confidence_zone=ConfidenceZone.HIGH,
+        top_problem_tag=top_problem_tag,
+        factor_contributions=fc,
+    )
+
+
+def _make_report(devices: list | None = None):
+    """Build a minimal Report with FleetSummary and given devices."""
+    from data_io.models import CalculationSnapshot, FleetSummary, Report
+
+    devs = devices or []
+    zone_counts: dict[str, int] = {"red": 0, "yellow": 0, "green": 0}
+    for d in devs:
+        key = d.zone.value if hasattr(d.zone, "value") else str(d.zone)
+        zone_counts[key] = zone_counts.get(key, 0) + 1
+
+    fs = FleetSummary(
+        total_devices=len(devs),
+        average_index=float(sum(d.health_index for d in devs) / len(devs)) if devs else 0.0,
+        median_index=float(sorted(d.health_index for d in devs)[len(devs) // 2]) if devs else 0.0,
+        zone_counts=zone_counts,
+        average_confidence=0.85,
+    )
+    snap = CalculationSnapshot(
+        weights_profile_name="test",
+        weights_profile_version="1.0",
+        weights_data={},
+    )
+    return Report(
+        report_id="rep-1",
+        generated_at=datetime(2026, 4, 23, tzinfo=UTC),
+        source_file_name="test.csv",
+        source_file_hash="deadbeef",
+        analysis_window_days=30,
+        fleet_summary=fs,
+        executive_summary="Парк в красной зоне: 2 устройства требуют срочного ремонта.",
+        devices=devs,
+        calculation_snapshot=snap,
+    )
+
+
+def _make_mass_error(
+    code: str,
+    *,
+    affected: int = 5,
+    occurrences: int = 12,
+    is_systemic: bool = False,
+):
+    from data_io.models import MassErrorAnalysis
+
+    return MassErrorAnalysis(
+        error_code=code,
+        description=f"Mass error {code}",
+        affected_device_count=affected,
+        total_occurrences=occurrences,
+        is_systemic=is_systemic,
+        what_is_this=f"Описание {code}",
+        business_impact="Простой МФУ",
+        immediate_action="Проверить",
+        analyzed_at=datetime(2026, 4, 23, tzinfo=UTC),
+    )
+
+
+class TestGetCurrentReportSummaryTool:
+    def test_no_report_returns_error(self, deps) -> None:
+        tool = GetCurrentReportSummaryTool(deps)
+        result = tool.execute({})
+        assert result.success is False
+        assert "Отчёт" in result.error
+
+    def test_with_report_returns_summary(self) -> None:
+        report = _make_report(devices=[
+            _make_device_report("DEV001", zone="red", health_index=18),
+            _make_device_report("DEV002", zone="red", health_index=25),
+            _make_device_report("DEV003", zone="yellow", health_index=55),
+        ])
+        deps = _make_deps(current_report=report)
+        tool = GetCurrentReportSummaryTool(deps)
+        result = tool.execute({})
+        assert result.success is True
+        assert result.data["red_zone_count"] == 2
+        assert result.data["total_devices_in_report"] == 3
+        assert "executive_summary" in result.data
+        assert result.data["fleet_summary"]["total_devices"] == 3
+
+    def test_mass_errors_counted(self) -> None:
+        report = _make_report(devices=[])
+        mass = {
+            "SC542": _make_mass_error("SC542", affected=9),
+            "09-605-00": _make_mass_error("09-605-00", affected=14),
+        }
+        deps = _make_deps(current_report=report, mass_error_analyses=mass)
+        tool = GetCurrentReportSummaryTool(deps)
+        result = tool.execute({})
+        assert result.data["total_mass_errors"] == 2
+
+
+class TestListRedZoneDevicesTool:
+    def test_no_report_returns_error(self, deps) -> None:
+        tool = ListRedZoneDevicesTool(deps)
+        result = tool.execute({})
+        assert result.success is False
+
+    def test_empty_red_zone_returns_message(self) -> None:
+        report = _make_report(devices=[
+            _make_device_report("DEV001", zone="green", health_index=90),
+        ])
+        deps = _make_deps(current_report=report)
+        tool = ListRedZoneDevicesTool(deps)
+        result = tool.execute({})
+        assert result.success is True
+        assert result.data["devices"] == []
+        assert "нет" in result.data["message"].lower()
+
+    def test_returns_red_devices_sorted_by_health(self) -> None:
+        report = _make_report(devices=[
+            _make_device_report("DEV001", zone="red", health_index=30),
+            _make_device_report("DEV002", zone="red", health_index=10),
+            _make_device_report("DEV003", zone="yellow", health_index=60),
+        ])
+        deps = _make_deps(current_report=report)
+        tool = ListRedZoneDevicesTool(deps)
+        result = tool.execute({"limit": 20})
+        assert result.success is True
+        assert result.data["total"] == 2
+        ids = [d["device_id"] for d in result.data["devices"]]
+        assert ids == ["DEV002", "DEV001"]
+        assert result.data["devices"][0]["health_index"] == 10
+        assert result.data["devices"][0]["model"] == "Xerox B8090"
+
+    def test_limit_respected(self) -> None:
+        devices = [
+            _make_device_report(f"DEV{i:03d}", zone="red", health_index=20 + i)
+            for i in range(5)
+        ]
+        report = _make_report(devices=devices)
+        deps = _make_deps(current_report=report)
+        tool = ListRedZoneDevicesTool(deps)
+        result = tool.execute({"limit": 2})
+        assert result.data["total"] == 2
+
+    def test_top_factors_included(self) -> None:
+        dev = _make_device_report(
+            "DEV001",
+            zone="red",
+            health_index=15,
+            factors=[
+                ("fuser_failure", 40.0, "events"),
+                ("toner_low", 20.0, "resources"),
+                ("jam_frequency", 15.0, "events"),
+                ("noise", 5.0, "events"),  # should be dropped (top-3)
+            ],
+        )
+        report = _make_report(devices=[dev])
+        deps = _make_deps(current_report=report)
+        tool = ListRedZoneDevicesTool(deps)
+        result = tool.execute({})
+        factors = result.data["devices"][0]["top_factors"]
+        assert len(factors) == 3
+        assert factors[0]["label"] == "fuser_failure"
+
+    def test_invalid_sort_by(self, deps) -> None:
+        report = _make_report(devices=[])
+        deps2 = _make_deps(current_report=report)
+        tool = ListRedZoneDevicesTool(deps2)
+        result = tool.execute({"sort_by": "bogus"})
+        assert result.success is False
+
+
+class TestListMassErrorsTool:
+    def test_empty_returns_message(self, deps) -> None:
+        tool = ListMassErrorsTool(deps)
+        result = tool.execute({})
+        assert result.success is True
+        assert result.data["mass_errors"] == []
+        assert "Dashboard" in result.data["message"]
+
+    def test_returns_sorted_by_affected_count_without_severity(self) -> None:
+        """No Qdrant searcher → severity='unknown', order is by affected count."""
+        mass = {
+            "SC542": _make_mass_error("SC542", affected=9),
+            "09-605-00": _make_mass_error("09-605-00", affected=14),
+            "E001": _make_mass_error("E001", affected=3),
+        }
+        deps = _make_deps(mass_error_analyses=mass)
+        tool = ListMassErrorsTool(deps)
+        result = tool.execute({})
+        codes = [m["error_code"] for m in result.data["mass_errors"]]
+        # All severity buckets equal (unknown), so within-bucket order is by count.
+        assert codes == ["09-605-00", "SC542", "E001"]
+        for m in result.data["mass_errors"]:
+            assert m["severity"] == "unknown"
+
+    def test_severity_filter(self) -> None:
+        """With a severity lookup, filter=high keeps only High-severity codes."""
+        mass = {
+            "75-530-00": _make_mass_error("75-530-00", affected=258),  # high
+            "09-605-00": _make_mass_error("09-605-00", affected=14),   # critical
+            "E001": _make_mass_error("E001", affected=3),              # low
+        }
+        searcher = MagicMock()
+        scroll_points = [
+            MagicMock(payload={"error_codes": ["75-530-00"], "severity": "High"}),
+            MagicMock(payload={"error_codes": ["09-605-00"], "severity": "critical"}),
+            MagicMock(payload={"error_codes": ["E001"], "severity": "low"}),
+        ]
+        searcher._qdrant = MagicMock()
+        searcher._qdrant.rest_client = MagicMock()
+        searcher._qdrant.rest_client.scroll.return_value = (scroll_points, None)
+        deps = _make_deps(mass_error_analyses=mass, searcher=searcher)
+        tool = ListMassErrorsTool(deps)
+
+        result = tool.execute({"severity": "high"})
+        codes = [m["error_code"] for m in result.data["mass_errors"]]
+        assert codes == ["75-530-00"]
+        assert result.data["filter_severity"] == "high"
+        assert result.data["mass_errors"][0]["severity"] == "high"
+
+    def test_severity_sorted_by_criticality(self) -> None:
+        """Without explicit filter, critical comes before high comes before low."""
+        mass = {
+            "A": _make_mass_error("A", affected=10),   # low
+            "B": _make_mass_error("B", affected=5),    # critical
+            "C": _make_mass_error("C", affected=50),   # high
+        }
+        searcher = MagicMock()
+        searcher._qdrant = MagicMock()
+        searcher._qdrant.rest_client = MagicMock()
+        searcher._qdrant.rest_client.scroll.return_value = (
+            [
+                MagicMock(payload={"error_codes": ["A"], "severity": "Low"}),
+                MagicMock(payload={"error_codes": ["B"], "severity": "Critical"}),
+                MagicMock(payload={"error_codes": ["C"], "severity": "High"}),
+            ],
+            None,
+        )
+        deps = _make_deps(mass_error_analyses=mass, searcher=searcher)
+        tool = ListMassErrorsTool(deps)
+        result = tool.execute({})
+        codes = [m["error_code"] for m in result.data["mass_errors"]]
+        assert codes == ["B", "C", "A"]  # critical, high, low
+
+    def test_limit_respected(self) -> None:
+        mass = {f"E{i}": _make_mass_error(f"E{i}", affected=i) for i in range(1, 8)}
+        deps = _make_deps(mass_error_analyses=mass)
+        tool = ListMassErrorsTool(deps)
+        result = tool.execute({"limit": 3})
+        assert result.data["total"] == 3
+
+    def test_invalid_limit(self, deps) -> None:
+        tool = ListMassErrorsTool(deps)
+        result = tool.execute({"limit": 0})
+        assert result.success is False
+
+    def test_invalid_severity(self) -> None:
+        mass = {"A": _make_mass_error("A", affected=1)}
+        deps = _make_deps(mass_error_analyses=mass)
+        tool = ListMassErrorsTool(deps)
+        result = tool.execute({"severity": "bogus"})
+        assert result.success is False
+
+    def test_severity_no_match_returns_empty_with_message(self) -> None:
+        mass = {"A": _make_mass_error("A", affected=1)}
+        searcher = MagicMock()
+        searcher._qdrant = MagicMock()
+        searcher._qdrant.rest_client = MagicMock()
+        searcher._qdrant.rest_client.scroll.return_value = (
+            [MagicMock(payload={"error_codes": ["A"], "severity": "low"})],
+            None,
+        )
+        deps = _make_deps(mass_error_analyses=mass, searcher=searcher)
+        tool = ListMassErrorsTool(deps)
+        result = tool.execute({"severity": "critical"})
+        assert result.success is True
+        assert result.data["mass_errors"] == []
+        assert "critical" in result.data["message"]

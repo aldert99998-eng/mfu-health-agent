@@ -147,7 +147,9 @@ class TestTCD007:
 
     def test_invalid_config_rejected(self):
         """Negative: invalid port must raise validation error."""
-        with pytest.raises(Exception):
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
             RAGConfig.model_validate({
                 "qdrant": {"port": -1},
             })
@@ -538,3 +540,62 @@ class TestTCD122:
             assert matched, (
                 f"Generic patterns should match known code '{code}'"
             )
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# TC-D-021: Reranker failure must not break search path (graceful degrade)
+# ═════════════════════════════════════════════════════════════════════════════
+
+
+class TestRerankerGracefulDegrade:
+    def test_try_get_reranker_returns_none_on_error(self, monkeypatch):
+        """`_try_get_reranker` должен вернуть None, если get_reranker кидает."""
+        from state import singletons
+
+        def _raise():
+            raise RuntimeError("simulated CUDA OOM")
+
+        monkeypatch.setattr(singletons, "get_reranker", _raise)
+        assert singletons._try_get_reranker() is None
+
+    def test_search_returns_results_when_reranker_crashes(self):
+        """search() не должен падать, если reranker.rerank кидает исключение."""
+        from unittest.mock import MagicMock
+        from rag.reranker import RerankerScoringError
+        from rag.search import HybridSearcher, SearchResult
+
+        fake_results = [
+            SearchResult(
+                chunk_id=f"c{i}",
+                document_id="d1",
+                text=f"text {i}",
+                score=1.0 - i * 0.1,
+                dense_score=0.0,
+                sparse_score=0.0,
+                payload={},
+            )
+            for i in range(5)
+        ]
+
+        searcher = HybridSearcher.__new__(HybridSearcher)
+        searcher._qdrant = MagicMock()
+        searcher._embedder = MagicMock()
+        searcher._embedder.encode_query.return_value = (MagicMock(), MagicMock())
+        searcher._config = MagicMock()
+        searcher._config.reranker.top_n_output = 3
+        searcher._hs_cfg = MagicMock()
+        searcher._hs_cfg.use_qdrant_fusion = False
+        searcher._hs_cfg.top_k_per_branch = 5
+        searcher._model_aliases = {}
+        searcher._qdrant_version = None
+        searcher._reranker = MagicMock()
+        searcher._reranker.rerank.side_effect = RerankerScoringError("boom")
+        searcher._search_with_manual_rrf = MagicMock(return_value=fake_results)
+        searcher._supports_fusion = MagicMock(return_value=False)
+        searcher._build_filter = MagicMock(return_value=None)
+
+        results = searcher.search("q", "service_manuals", top_k=3, use_reranker=True)
+
+        assert len(results) == 3, "Должны остаться 3 top_k результата из hybrid-ветки"
+        assert results[0].chunk_id == "c0", "Исходный порядок сохраняется"
+        searcher._reranker.rerank.assert_called_once()

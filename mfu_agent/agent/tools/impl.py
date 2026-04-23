@@ -20,7 +20,12 @@ from agent.tools.registry import ToolRegistry, ToolResult
 if TYPE_CHECKING:
     from agent.memory import MemoryManager
     from data_io.factor_store import FactorStore
-    from data_io.models import HealthResult, WeightsProfile
+    from data_io.models import (
+        HealthResult,
+        MassErrorAnalysis,
+        Report,
+        WeightsProfile,
+    )
     from llm.client import LLMClient
     from rag.search import HybridSearcher
 
@@ -45,6 +50,8 @@ class ToolDependencies:
         collection: str = "service_manuals",
         health_cache: dict[str, list[HealthResult]] | None = None,
         memory_manager: MemoryManager | None = None,
+        current_report: Report | None = None,
+        mass_error_analyses: dict[str, MassErrorAnalysis] | None = None,
     ) -> None:
         self.factor_store = factor_store
         self.weights = weights
@@ -53,6 +60,10 @@ class ToolDependencies:
         self.collection = collection
         self.health_cache: dict[str, list[HealthResult]] = health_cache or {}
         self.memory_manager = memory_manager
+        self.current_report = current_report
+        self.mass_error_analyses: dict[str, MassErrorAnalysis] = (
+            mass_error_analyses or {}
+        )
 
 
 # ── 1. SearchServiceDocsTool ─────────────────────────────────────────────────
@@ -163,65 +174,41 @@ _CLASSIFY_FALLBACK = {
     "reasoning": "Документация не найдена, используется default.",
 }
 
-# Xerox service codes with known severity (heuristic fallback when RAG is empty)
-_XEROX_HEURISTIC: dict[str, tuple[str, list[str]]] = {
-    # Critical — hardware failures requiring service call
-    "09-594-00": ("Critical", ["fuser"]),
-    "09-604-00": ("Critical", ["fuser"]),
-    "09-605-00": ("Critical", ["fuser"]),
-    "05-310-00": ("Critical", ["main_board"]),
-    "05-320-00": ("Critical", ["main_board"]),
-    # High — consumable replacement / paper path issues
-    "75-530-00": ("High", ["toner"]),
-    "72-535-00": ("High", ["paper_path"]),
-    "73-530-00": ("High", ["paper_path"]),
-    "73-535-00": ("High", ["paper_path"]),
-    "17-562-00": ("High", ["drum"]),
-    "17-570-00": ("High", ["drum"]),
-    "07-535-00": ("High", ["paper_tray"]),
-}
 
-# Prefix-based heuristic for unknown Xerox codes
-_XEROX_PREFIX_SEVERITY: dict[str, str] = {
-    "09": "Critical",   # 09-xxx — hardware/fuser
-    "05": "Critical",   # 05-xxx — controller
-    "75": "High",       # 75-xxx — consumables
-    "72": "High",       # 72-xxx — paper jam
-    "73": "High",       # 73-xxx — paper jam
-    "17": "High",       # 17-xxx — drum/imaging
-    "07": "Medium",     # 07-xxx — tray
-    "10": "Medium",     # 10-xxx — finisher
-}
+def _lookup_model_registry(
+    error_code: str,
+    model_hint: str | None,
+) -> dict[str, Any] | None:
+    """Look up error_code in the per-model registry (new format).
 
-
-def _heuristic_classify(error_code: str) -> dict[str, Any] | None:
-    """Return heuristic severity for known Xerox codes, or None."""
-    import re
-
-    if not re.match(r"^\d{2}-\d{3}-\d{2}$", error_code):
+    Tries each supported vendor (Xerox/Lexmark/Ricoh) with the given model.
+    Returns a classification dict on hit, None on miss or no model hint.
+    """
+    if not model_hint:
         return None
-
-    if error_code in _XEROX_HEURISTIC:
-        sev, comps = _XEROX_HEURISTIC[error_code]
+    try:
+        from error_codes import SUPPORTED_VENDORS, load_codes
+    except Exception:
+        return None
+    for vendor in SUPPORTED_VENDORS:
+        try:
+            doc = load_codes(vendor, model_hint)
+        except Exception:
+            continue
+        if doc is None:
+            continue
+        entry = doc.codes.get(error_code)
+        if entry is None:
+            continue
         return {
-            "severity": sev,
-            "confidence": 0.6,
-            "affected_components": comps,
-            "source": "heuristic_xerox_lookup",
-            "reasoning": f"Known Xerox code {error_code}, heuristic severity.",
+            "severity": entry.severity,
+            "confidence": 0.9,
+            "affected_components": [entry.component] if entry.component else [],
+            "source": f"{vendor.lower()}_{doc.model.lower()}_registry",
+            "reasoning": entry.description,
         }
-
-    prefix = error_code[:2]
-    if prefix in _XEROX_PREFIX_SEVERITY:
-        return {
-            "severity": _XEROX_PREFIX_SEVERITY[prefix],
-            "confidence": 0.4,
-            "affected_components": [],
-            "source": "heuristic_xerox_prefix",
-            "reasoning": f"Xerox prefix {prefix}-xxx heuristic, no exact match.",
-        }
-
     return None
+
 
 _CLASSIFY_RESPONSE_SCHEMA = {
     "type": "object",
@@ -281,6 +268,12 @@ class ClassifyErrorSeverityTool:
         if cache_key in self._cache:
             return ToolResult(success=True, data=self._cache[cache_key])
 
+        # Highest-priority lookup: per-model registry (saves LLM round-trip)
+        registry_hit = _lookup_model_registry(parsed.error_code, parsed.model)
+        if registry_hit is not None:
+            self._cache[cache_key] = registry_hit
+            return ToolResult(success=True, data=registry_hit)
+
         context_text = ""
         if self._deps.searcher is not None:
             query = parsed.error_code
@@ -316,18 +309,13 @@ class ClassifyErrorSeverityTool:
                 logger.warning("RAG search failed for %s", parsed.error_code, exc_info=True)
 
         if self._deps.llm_client is None:
-            if not context_text:
-                heuristic = _heuristic_classify(parsed.error_code)
-                result_data = heuristic if heuristic else dict(_CLASSIFY_FALLBACK)
-            else:
-                result_data = dict(_CLASSIFY_FALLBACK)
-                result_data["reasoning"] = "LLM client not available, используется default."
+            result_data = dict(_CLASSIFY_FALLBACK)
+            result_data["reasoning"] = "LLM client not available, используется default."
             self._cache[cache_key] = result_data
             return ToolResult(success=True, data=result_data)
 
         if not context_text and not parsed.error_description:
-            heuristic = _heuristic_classify(parsed.error_code)
-            result_data = heuristic if heuristic else dict(_CLASSIFY_FALLBACK)
+            result_data = dict(_CLASSIFY_FALLBACK)
             self._cache[cache_key] = result_data
             return ToolResult(success=True, data=result_data)
 
@@ -430,9 +418,25 @@ class GetDeviceEventsTool:
         except ValidationError as exc:
             return ToolResult(success=False, error=f"Invalid args: {exc}")
 
-        events = self._deps.factor_store.get_events(parsed.device_id, window_days=parsed.window_days)
-        total = len(events)
-        events = events[-50:]
+        all_events = self._deps.factor_store.get_events(parsed.device_id, window_days=parsed.window_days)
+        total = len(all_events)
+
+        latest_by_code: dict[str, Any] = {}
+        unordered: list[Any] = []
+        for e in all_events:
+            key = e.error_code or e.error_description or ""
+            if key:
+                prev = latest_by_code.get(key)
+                if prev is None or e.timestamp > prev.timestamp:
+                    latest_by_code[key] = e
+            else:
+                unordered.append(e)
+
+        kept = list(latest_by_code.values()) + unordered[-10:]
+        if len(kept) > 50:
+            kept.sort(key=lambda x: x.timestamp)
+            kept = kept[-50:]
+
         data = [
             {
                 "device_id": e.device_id,
@@ -444,9 +448,14 @@ class GetDeviceEventsTool:
                 "location": e.location,
                 "status": e.status,
             }
-            for e in events
+            for e in kept
         ]
-        return ToolResult(success=True, data={"events": data, "total": total, "truncated": total > 50})
+        return ToolResult(success=True, data={
+            "events": data,
+            "total": total,
+            "truncated": total > len(kept),
+            "unique_codes": sorted(latest_by_code.keys()),
+        })
 
 
 # ── 4. GetDeviceResourcesTool ────────────────────────────────────────────────
@@ -637,7 +646,7 @@ class CalculateHealthIndexTool:
         )
 
         weights = self._deps.weights
-        now = datetime.now(UTC)
+        now = self._deps.factor_store.reference_time
 
         built_factors: list[Factor] = []
         for fi in parsed.factors:
@@ -1034,6 +1043,346 @@ class GetLearnedPatternsTool:
         return ToolResult(success=True, data={"patterns": data, "total": len(data)})
 
 
+# ── 11. GetCurrentReportSummaryTool ──────────────────────────────────────────
+
+
+class _CurrentReportSummaryArgs(BaseModel):
+    pass
+
+
+class GetCurrentReportSummaryTool:
+    """Return a short summary of the current fleet health report."""
+
+    def __init__(self, deps: ToolDependencies) -> None:
+        self._deps = deps
+
+    @property
+    def name(self) -> str:
+        return "get_current_report_summary"
+
+    @property
+    def schema(self) -> dict[str, Any]:
+        return {
+            "type": "function",
+            "function": {
+                "name": self.name,
+                "description": (
+                    "Краткая сводка текущего отчёта о состоянии парка МФУ: "
+                    "распределение по зонам, средние показатели, число устройств в красной зоне, "
+                    "executive_summary. Используй для вопросов общего характера "
+                    "про текущий парк."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {},
+                },
+            },
+        }
+
+    def execute(self, args: dict[str, Any]) -> ToolResult:
+        report = self._deps.current_report
+        if report is None:
+            return ToolResult(
+                success=False,
+                error="Отчёт ещё не сформирован. Загрузите данные и запустите анализ.",
+            )
+
+        devices = report.devices or []
+        red_count = sum(
+            1 for d in devices if (d.zone.value if hasattr(d.zone, "value") else d.zone) == "red"
+        )
+
+        data = {
+            "report_id": report.report_id,
+            "generated_at": report.generated_at.isoformat(),
+            "source_file_name": report.source_file_name,
+            "analysis_window_days": report.analysis_window_days,
+            "fleet_summary": report.fleet_summary.model_dump(mode="json"),
+            "red_zone_count": red_count,
+            "total_devices_in_report": len(devices),
+            "executive_summary": (report.executive_summary or "")[:2000],
+            "total_mass_errors": len(self._deps.mass_error_analyses or {}),
+        }
+        return ToolResult(success=True, data=data)
+
+
+# ── 12. ListRedZoneDevicesTool ───────────────────────────────────────────────
+
+
+class _ListRedZoneArgs(BaseModel):
+    limit: int = Field(default=20, ge=1, le=200)
+    sort_by: str = Field(default="health_index")
+
+
+class ListRedZoneDevicesTool:
+    """List devices in the red zone with model, location, and top factors."""
+
+    def __init__(self, deps: ToolDependencies) -> None:
+        self._deps = deps
+
+    @property
+    def name(self) -> str:
+        return "list_red_zone_devices"
+
+    @property
+    def schema(self) -> dict[str, Any]:
+        return {
+            "type": "function",
+            "function": {
+                "name": self.name,
+                "description": (
+                    "Список устройств в красной зоне (худшее здоровье) с моделью, "
+                    "локацией, индексом здоровья и топ-3 факторами. "
+                    "Используй для вопросов типа «какие устройства в красной зоне», "
+                    "«проблемные МФУ», «что срочно чинить»."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "limit": {
+                            "type": "integer",
+                            "description": "Максимум устройств в ответе (1–200).",
+                            "default": 20,
+                        },
+                        "sort_by": {
+                            "type": "string",
+                            "enum": ["health_index", "confidence"],
+                            "description": "По какому полю сортировать (по возрастанию).",
+                            "default": "health_index",
+                        },
+                    },
+                },
+            },
+        }
+
+    def execute(self, args: dict[str, Any]) -> ToolResult:
+        try:
+            parsed = _ListRedZoneArgs.model_validate(args)
+        except ValidationError as exc:
+            return ToolResult(success=False, error=f"Invalid args: {exc}")
+
+        if parsed.sort_by not in {"health_index", "confidence"}:
+            return ToolResult(
+                success=False,
+                error=f"Unknown sort_by: {parsed.sort_by}",
+            )
+
+        report = self._deps.current_report
+        if report is None:
+            return ToolResult(
+                success=False,
+                error="Отчёт ещё не сформирован. Загрузите данные и запустите анализ.",
+            )
+
+        red = [
+            d for d in (report.devices or [])
+            if (d.zone.value if hasattr(d.zone, "value") else d.zone) == "red"
+        ]
+        if not red:
+            return ToolResult(
+                success=True,
+                data={
+                    "devices": [],
+                    "total": 0,
+                    "message": "В текущем отчёте нет устройств в красной зоне.",
+                },
+            )
+
+        red.sort(key=lambda d: getattr(d, parsed.sort_by))
+        red = red[: parsed.limit]
+
+        out = []
+        for d in red:
+            top_factors = [
+                {
+                    "label": fc.label,
+                    "penalty": round(float(fc.penalty), 2),
+                    "source": fc.source,
+                }
+                for fc in (d.factor_contributions or [])[:3]
+            ]
+            out.append({
+                "device_id": d.device_id,
+                "model": d.model,
+                "location": d.location,
+                "health_index": d.health_index,
+                "confidence": round(float(d.confidence), 2),
+                "top_problem_tag": d.top_problem_tag,
+                "top_factors": top_factors,
+            })
+
+        return ToolResult(
+            success=True,
+            data={"devices": out, "total": len(out), "sort_by": parsed.sort_by},
+        )
+
+
+# ── 13. ListMassErrorsTool ───────────────────────────────────────────────────
+
+
+class _ListMassErrorsArgs(BaseModel):
+    limit: int = Field(default=10, ge=1, le=100)
+    severity: str | None = Field(default=None, description="critical | high | medium | low | info")
+
+
+_SEVERITY_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
+
+
+def _fetch_severity_map(
+    deps: ToolDependencies, codes: list[str]
+) -> dict[str, str]:
+    """Look up ``severity`` in the ``error_codes`` Qdrant collection.
+
+    Returns a lowercase-keyed map ``{code: severity}``. Missing codes
+    are simply absent. Empty dict on any failure — callers must treat
+    severity as optional information.
+    """
+    if not codes:
+        return {}
+    searcher = getattr(deps, "searcher", None)
+    qmgr = getattr(searcher, "_qdrant", None) if searcher else None
+    client = getattr(qmgr, "rest_client", None) if qmgr else None
+    if client is None:
+        return {}
+    try:
+        from qdrant_client.http.models import FieldCondition, Filter, MatchAny
+        points, _ = client.scroll(
+            "error_codes",
+            scroll_filter=Filter(
+                must=[FieldCondition(key="error_codes", match=MatchAny(any=codes))],
+            ),
+            limit=max(len(codes) * 2, 10),
+            with_payload=["error_codes", "severity"],
+        )
+    except Exception:
+        logger.warning("list_mass_errors: severity lookup failed", exc_info=True)
+        return {}
+
+    out: dict[str, str] = {}
+    for p in points:
+        payload = p.payload or {}
+        sev = str(payload.get("severity") or "").strip().lower()
+        if not sev:
+            continue
+        for code in (payload.get("error_codes") or []):
+            out.setdefault(str(code), sev)
+    return out
+
+
+class ListMassErrorsTool:
+    """List mass error codes from the Dashboard mass-error analysis."""
+
+    def __init__(self, deps: ToolDependencies) -> None:
+        self._deps = deps
+
+    @property
+    def name(self) -> str:
+        return "list_mass_errors"
+
+    @property
+    def schema(self) -> dict[str, Any]:
+        return {
+            "type": "function",
+            "function": {
+                "name": self.name,
+                "description": (
+                    "Список массовых кодов ошибок в парке. Отсортирован по числу "
+                    "затронутых устройств. Поле severity каждого кода подтягивается "
+                    "из RAG-коллекции error_codes. Можно фильтровать по severity. "
+                    "Используй для вопросов про «массовые ошибки», "
+                    "«самые частые коды», «критичные/high/medium ошибки»."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "limit": {
+                            "type": "integer",
+                            "description": "Максимум кодов в ответе (1–100).",
+                            "default": 10,
+                        },
+                        "severity": {
+                            "type": "string",
+                            "enum": ["critical", "high", "medium", "low", "info"],
+                            "description": (
+                                "Фильтр по уровню важности. Без фильтра — все коды."
+                            ),
+                        },
+                    },
+                },
+            },
+        }
+
+    def execute(self, args: dict[str, Any]) -> ToolResult:
+        try:
+            parsed = _ListMassErrorsArgs.model_validate(args)
+        except ValidationError as exc:
+            return ToolResult(success=False, error=f"Invalid args: {exc}")
+
+        filter_sev = (parsed.severity or "").strip().lower() or None
+        if filter_sev and filter_sev not in _SEVERITY_ORDER:
+            return ToolResult(
+                success=False,
+                error=f"Unknown severity: {parsed.severity}. "
+                f"Use one of {list(_SEVERITY_ORDER.keys())}.",
+            )
+
+        analyses = self._deps.mass_error_analyses or {}
+        if not analyses:
+            return ToolResult(
+                success=True,
+                data={
+                    "mass_errors": [],
+                    "total": 0,
+                    "message": (
+                        "Массовые коды ошибок пока не проанализированы. "
+                        "Запустите анализ на странице Dashboard."
+                    ),
+                },
+            )
+
+        severity_map = _fetch_severity_map(
+            self._deps, [a.error_code for a in analyses.values()]
+        )
+
+        items: list[tuple[str, Any]] = []
+        for a in analyses.values():
+            sev = severity_map.get(a.error_code, "unknown")
+            if filter_sev and sev != filter_sev:
+                continue
+            items.append((sev, a))
+
+        items.sort(
+            key=lambda pair: (
+                _SEVERITY_ORDER.get(pair[0], 99),
+                -pair[1].affected_device_count,
+            ),
+        )
+        items = items[: parsed.limit]
+
+        out = []
+        for sev, a in items:
+            out.append({
+                "error_code": a.error_code,
+                "severity": sev,
+                "description": a.description,
+                "affected_device_count": a.affected_device_count,
+                "total_occurrences": a.total_occurrences,
+                "is_systemic": a.is_systemic,
+                "what_is_this": a.what_is_this,
+                "business_impact": a.business_impact,
+                "immediate_action": a.immediate_action,
+            })
+
+        data: dict[str, Any] = {"mass_errors": out, "total": len(out)}
+        if filter_sev:
+            data["filter_severity"] = filter_sev
+            if not out:
+                data["message"] = (
+                    f"Массовых кодов с severity={filter_sev} не найдено."
+                )
+        return ToolResult(success=True, data=data)
+
+
 # ── Registration ─────────────────────────────────────────────────────────────
 
 
@@ -1041,7 +1390,7 @@ def register_all_tools(
     registry: ToolRegistry,
     deps: ToolDependencies,
 ) -> None:
-    """Register all 10 agent tools into the given registry."""
+    """Register all 13 agent tools into the given registry."""
     tools = [
         SearchServiceDocsTool(deps),
         ClassifyErrorSeverityTool(deps),
@@ -1053,6 +1402,9 @@ def register_all_tools(
         FindSimilarDevicesTool(deps),
         GetDeviceHistoryTool(deps),
         GetLearnedPatternsTool(deps),
+        GetCurrentReportSummaryTool(deps),
+        ListRedZoneDevicesTool(deps),
+        ListMassErrorsTool(deps),
     ]
     for tool in tools:
         registry.register(tool)  # type: ignore[arg-type]

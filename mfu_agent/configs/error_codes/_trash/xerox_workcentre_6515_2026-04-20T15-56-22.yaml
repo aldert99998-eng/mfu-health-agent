@@ -1,0 +1,294 @@
+vendor: Xerox
+model: WorkCentre 6515
+updated_at: '2026-04-20T13:20:11.765568+00:00'
+codes:
+  01-514-00:
+    description: Left Side Door is open
+    severity: Low
+    component: door
+    notes: ''
+  01-515-00:
+    description: Printer Left Side Door is open
+    severity: Low
+    component: door
+    notes: ''
+  01-540-02:
+    description: Paper removed from or added to Tray 2
+    severity: Low
+    component: tray
+    notes: ''
+  01-545-02:
+    description: Tray 2 is a dedicated paper tray
+    severity: Low
+    component: tray
+    notes: ''
+  03-557-00:
+    description: Scanner recovery in progress
+    severity: Medium
+    component: scanner
+    notes: ''
+  05-501-00:
+    description: Document Feeder is raised
+    severity: Low
+    component: doc_feeder
+    notes: ''
+  05-570-00:
+    description: Paper jam in Document Feeder
+    severity: High
+    component: doc_feeder
+    notes: ''
+  07-514-01:
+    description: Tray 1 is open
+    severity: Low
+    component: tray
+    notes: ''
+  07-533-00:
+    description: Tray 3 is empty
+    severity: Low
+    component: tray
+    notes: ''
+  07-535-00:
+    description: Tray 5 (Bypass) is empty
+    severity: Low
+    component: tray
+    notes: ''
+  07-544-00:
+    description: Tray 1 is empty
+    severity: Low
+    component: tray
+    notes: ''
+  07-545-00:
+    description: Tray 2 is empty
+    severity: Low
+    component: tray
+    notes: ''
+  07-500-00:
+    description: Bypass Tray is empty
+    severity: Low
+    component: tray
+    notes: ''
+  09-508-00:
+    description: Toner Waste Container near end of life
+    severity: Medium
+    component: toner
+    notes: ''
+  09-568-00:
+    description: Toner Cartridge (R1) is nearly empty
+    severity: Medium
+    component: toner
+    notes: ''
+  09-588-00:
+    description: Toner Cartridge (R1) is empty
+    severity: Medium
+    component: toner
+    notes: ''
+  09-594-00:
+    description: Print Cartridge (R2) is near end of life
+    severity: Medium
+    component: toner
+    notes: ''
+  09-596-00:
+    description: Toner control system failure
+    severity: High
+    component: toner
+    notes: ''
+  09-604-00:
+    description: Fuser is near end of life
+    severity: Medium
+    component: fuser
+    notes: ''
+  09-605-00:
+    description: Fuser end-of-life / critical failure
+    severity: Critical
+    component: fuser
+    notes: ''
+  09-681-00:
+    description: Toner Cartridge (R1) is nearly empty
+    severity: Medium
+    component: toner
+    notes: ''
+  10-702-00:
+    description: Output Tray error; offsetting not available
+    severity: Medium
+    component: finisher
+    notes: ''
+  14-517-00:
+    description: Scanner error
+    severity: High
+    component: scanner
+    notes: ''
+  16-535-00:
+    description: Immediate Image Overwrite error
+    severity: High
+    component: security
+    notes: ''
+  17-562-00:
+    description: Machine unable to contact Xerox Remote Services datacenter
+    severity: Medium
+    component: network
+    notes: ''
+  17-563-00:
+    description: Remote services communication error
+    severity: Medium
+    component: network
+    notes: ''
+  17-570-00:
+    description: NTP communication error; machine time may be inaccurate
+    severity: Low
+    component: network
+    notes: ''
+  19-506-00:
+    description: Generic system fault
+    severity: Medium
+    component: system
+    notes: ''
+  22-505-17:
+    description: Auto configuration is disabled
+    severity: Low
+    component: config
+    notes: ''
+  22-511-04:
+    description: Paper required for current job is not available
+    severity: Medium
+    component: tray
+    notes: ''
+  22-513-04:
+    description: Job configuration mismatch
+    severity: Medium
+    component: system
+    notes: ''
+  22-560-00:
+    description: SIM failure
+    severity: High
+    component: system
+    notes: ''
+  22-584-00:
+    description: Supplies Plan has expired
+    severity: Medium
+    component: supplies
+    notes: ''
+  22-585-00:
+    description: System error
+    severity: High
+    component: system
+    notes: ''
+  71-302-00:
+    description: Tray 1 is open
+    severity: Low
+    component: tray
+    notes: ''
+  71-313-00:
+    description: Tray 1 is not available
+    severity: Low
+    component: tray
+    notes: ''
+  71-530-00:
+    description: Tray 1 is empty
+    severity: Low
+    component: tray
+    notes: ''
+  71-535-00:
+    description: Tray 1 is nearly empty
+    severity: Low
+    component: tray
+    notes: ''
+  72-301-00:
+    description: Tray 2 is open
+    severity: Low
+    component: tray
+    notes: ''
+  72-302-00:
+    description: Tray 2 is open
+    severity: Low
+    component: tray
+    notes: ''
+  72-313-00:
+    description: Tray 2 is not available
+    severity: Low
+    component: tray
+    notes: ''
+  72-530-00:
+    description: Tray 2 is empty
+    severity: Low
+    component: tray
+    notes: ''
+  72-535-00:
+    description: Tray 2 is nearly empty
+    severity: Low
+    component: tray
+    notes: ''
+  73-301-00:
+    description: Tray 3 is open
+    severity: Low
+    component: tray
+    notes: ''
+  73-313-00:
+    description: Tray 3 is not available
+    severity: Low
+    component: tray
+    notes: ''
+  73-530-00:
+    description: Tray 3 is empty
+    severity: Low
+    component: tray
+    notes: ''
+  73-535-00:
+    description: Tray 3 is nearly empty
+    severity: Low
+    component: tray
+    notes: ''
+  74-301-00:
+    description: Tray 4 is open
+    severity: Low
+    component: tray
+    notes: ''
+  74-530-00:
+    description: Tray 4 is empty
+    severity: Low
+    component: tray
+    notes: ''
+  74-535-00:
+    description: Tray 4 is nearly empty
+    severity: Low
+    component: tray
+    notes: ''
+  75-530-00:
+    description: Tray 5 is empty
+    severity: Low
+    component: tray
+    notes: ''
+  75-535-00:
+    description: Tray 5 is nearly empty
+    severity: Low
+    component: tray
+    notes: ''
+  81-200-00:
+    description: Paper jam behind Left Side Door
+    severity: High
+    component: paper_path
+    notes: ''
+  81-201-00:
+    description: Misfeed in Tray 1
+    severity: High
+    component: paper_path
+    notes: ''
+  81-203-00:
+    description: Misfeed in Tray 3
+    severity: High
+    component: paper_path
+    notes: ''
+  81-204-00:
+    description: Misfeed in Tray 4
+    severity: High
+    component: paper_path
+    notes: ''
+  05-310-00:
+    description: Main controller fault
+    severity: Critical
+    component: controller
+    notes: ''
+  05-320-00:
+    description: Main controller fault
+    severity: Critical
+    component: controller
+    notes: ''

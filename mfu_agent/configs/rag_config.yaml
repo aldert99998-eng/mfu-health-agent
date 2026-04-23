@@ -39,8 +39,8 @@ chunking:
 
 qdrant:
   host: "localhost"
-  port: 6333
-  grpc_port: 6334
+  port: 6343
+  grpc_port: 6344
   prefer_grpc: true
   timeout_seconds: 30
   collections:

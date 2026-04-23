@@ -12,6 +12,9 @@ venv/
 .env
 .env.local
 
+# Provider-specific CA bundles (organization-specific, do not ship)
+configs/certs/
+
 # IDE
 .vscode/
 .idea/
@@ -42,3 +45,11 @@ htmlcov/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+
+# Visual regression artifacts (regenerated on failure, not canonical)
+tests/visual/golden/*_actual.png
+tests/visual/golden/*_diff.png
+tests/artifacts/
+
+# Local WIP / scratch
+configs/_trash/

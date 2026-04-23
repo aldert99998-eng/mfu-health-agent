@@ -37,11 +37,11 @@
 Ответь строго в формате JSON:
 
 ```json
-{
+{{
   "severity": "Critical|High|Medium|Low|Info",
   "confidence": 0.0,
   "affected_components": ["компонент1", "компонент2"],
   "source": "идентификатор документа-источника или null",
   "reasoning": "краткое обоснование на русском языке"
-}
+}}
 ```

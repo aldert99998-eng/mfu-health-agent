@@ -15,7 +15,6 @@ from data_io.models import (
     FileFormat,
     HealthResult,
     HealthZone,
-    PatternType,
     ResourceSnapshot,
     SourceFileInfo,
     Trace,
@@ -158,87 +157,6 @@ class TestFleetSummary:
         report = builder.build(results, store, _make_snapshot(), _make_source_info())
 
         assert report.fleet_summary.median_index == 70.0
-
-
-# ── TC-C-2: Mass issue detection ────────────────────────────────────────────
-
-
-class TestPatternDetection:
-    def test_mass_issue_detected(self) -> None:
-        results = [
-            _make_result(f"D{i:03d}", 35, error_label="C6000")
-            for i in range(4)
-        ]
-        models = {f"D{i:03d}": "Kyocera 3253ci" for i in range(4)}
-        store = _make_factor_store(results, models=models)
-        builder = _make_builder()
-        report = builder.build(results, store, _make_snapshot(), _make_source_info())
-
-        mass_patterns = [
-            p for p in report.top_patterns
-            if p.pattern_type == PatternType.MASS_ISSUE
-        ]
-        assert len(mass_patterns) >= 1
-        assert len(mass_patterns[0].affected_device_ids) == 4
-
-    def test_location_cluster_detected(self) -> None:
-        results = [
-            _make_result(f"D{i:03d}", 30 + i, error_label=f"E{i:04d}")
-            for i in range(5)
-        ]
-        locations = {f"D{i:03d}": "Офис Ленинградка" for i in range(5)}
-        store = _make_factor_store(results, locations=locations)
-        builder = _make_builder()
-        report = builder.build(results, store, _make_snapshot(), _make_source_info())
-
-        loc_patterns = [
-            p for p in report.top_patterns
-            if p.pattern_type == PatternType.LOCATION_CLUSTER
-        ]
-        assert len(loc_patterns) >= 1
-
-    def test_critical_single_detected(self) -> None:
-        results = [
-            _make_result("D001", 15, confidence=0.9),
-            _make_result("D002", 80, confidence=0.9),
-        ]
-        store = _make_factor_store(results)
-        builder = _make_builder()
-        report = builder.build(results, store, _make_snapshot(), _make_source_info())
-
-        critical = [
-            p for p in report.top_patterns
-            if p.pattern_type == PatternType.CRITICAL_SINGLE
-        ]
-        assert len(critical) >= 1
-        assert "D001" in critical[0].affected_device_ids
-
-    def test_patterns_limited_to_5(self) -> None:
-        results = []
-        models = {}
-        for i in range(20):
-            did = f"D{i:03d}"
-            results.extend([
-                _make_result(f"{did}_a", 30, error_label=f"ERR_{i}"),
-                _make_result(f"{did}_b", 30, error_label=f"ERR_{i}"),
-                _make_result(f"{did}_c", 30, error_label=f"ERR_{i}"),
-            ])
-            for suffix in ("_a", "_b", "_c"):
-                models[f"{did}{suffix}"] = f"Model_{i}"
-
-        store = _make_factor_store(results, models=models)
-        builder = _make_builder()
-        report = builder.build(results, store, _make_snapshot(), _make_source_info())
-
-        assert len(report.top_patterns) <= 5
-
-    def test_single_device_no_patterns(self) -> None:
-        results = [_make_result("D001", 50)]
-        store = _make_factor_store(results)
-        builder = _make_builder()
-        report = builder.build(results, store, _make_snapshot(), _make_source_info())
-
-        assert report.top_patterns == []
 
 
 # ── TC-C-4: Distribution ────────────────────────────────────────────────────

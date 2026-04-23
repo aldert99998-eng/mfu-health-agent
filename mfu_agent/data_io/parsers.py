@@ -13,7 +13,6 @@ from __future__ import annotations
 import csv
 import io
 import json
-import re
 import logging
 from abc import ABC, abstractmethod
 from pathlib import Path
@@ -24,6 +23,7 @@ import pandas as pd
 from openpyxl import load_workbook
 
 from data_io.models import FileFormat
+from data_io.preamble import strip_sql_preamble_text
 
 logger = logging.getLogger(__name__)
 
@@ -263,31 +263,10 @@ class CSVParser(FileParser):
     @staticmethod
     def _skip_preamble(text: str) -> str:
         """Skip BOM, SQL comments/queries, and other non-data preamble."""
-        if text.startswith("\ufeff"):
-            text = text[1:]
-
-        _SQL_KEYWORDS = {"SELECT", "UNION", "FROM", "WHERE", "INNER", "LEFT", "JOIN", "INSERT", "CREATE"}
-
-        lines = text.split("\n")
-        start = 0
-        for i, line in enumerate(lines):
-            stripped = line.strip()
-            if not stripped:
-                start = i + 1
-                continue
-            if stripped.startswith("--"):
-                start = i + 1
-                continue
-            upper = stripped.upper()
-            tokens = set(re.split(r"[\s(,;]+", upper[:200]))
-            if tokens & _SQL_KEYWORDS:
-                start = i + 1
-                continue
-            break
-        if start > 0:
-            logger.info("CSV: пропущено %d строк преамбулы (SQL/комментарии)", start)
-            return "\n".join(lines[start:])
-        return text
+        cleaned, skipped = strip_sql_preamble_text(text)
+        if skipped > 0:
+            logger.info("CSV: пропущено %d строк преамбулы (SQL/комментарии)", skipped)
+        return cleaned
 
     @staticmethod
     def _detect_delimiter(path: Path, text: str) -> str:

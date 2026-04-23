@@ -147,7 +147,7 @@ class SynonymMatcher:
 class ContentMatcher:
     """Step B: match columns by inspecting their values."""
 
-    _ERROR_CODE_RE = re.compile(r"^[CJEFS]\d{3,5}$|^SC\d{3}$")
+    _ERROR_CODE_RE = re.compile(r"^(?:[CJEF]\d{3,5}|S\d{3,5}|SC\d{3,4}|\d{2}-\d{3}-\d{2})$")
 
     def match(self, df: pd.DataFrame, already_mapped: dict[str, str]) -> dict[str, str]:
         """Return additional mappings based on column content."""

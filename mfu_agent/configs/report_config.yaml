@@ -9,12 +9,6 @@ thresholds:
   high_confidence: 0.85
   medium_confidence: 0.6
 
-top_patterns:
-  max_count: 5
-  mass_issue_min_devices: 3
-  critical_single_index_threshold: 20
-  critical_single_confidence_threshold: 0.4
-
 display:
   max_devices_in_table_html: 500
   max_devices_in_pdf_warning: 300

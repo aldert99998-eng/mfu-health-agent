@@ -9,7 +9,6 @@ from data_io.models import (
     ConfidenceFactors,
     ConfidenceZone,
     DeviceReport,
-    DocReference,
     Factor,
     FactorContribution,
     FileFormat,
@@ -20,8 +19,6 @@ from data_io.models import (
     InvalidRecord,
     LearnedPattern,
     NormalizedEvent,
-    PatternGroup,
-    PatternType,
     ReflectionAction,
     ReflectionResult,
     ReflectionVerdict,
@@ -133,20 +130,6 @@ FLEET_SUMMARY_EXAMPLE = FleetSummary(
     average_confidence=0.87,
 )
 
-DOC_REFERENCE_EXAMPLE = DocReference(
-    title="Service Manual TASKalfa 3253ci",
-    section="7.2 Fuser Unit",
-)
-
-PATTERN_GROUP_EXAMPLE = PatternGroup(
-    pattern_type=PatternType.MASS_ISSUE,
-    title="C6000 на TASKalfa 3253ci (5 устройств)",
-    affected_device_ids=["D001", "D017", "D023", "D045", "D099"],
-    average_index=42.0,
-    explanation="Массовый отказ фьюзера на устройствах одной модели.",
-    doc_references=[DOC_REFERENCE_EXAMPLE],
-)
-
 DEVICE_REPORT_EXAMPLE = DeviceReport(
     device_id="D001",
     model="Kyocera TASKalfa 3253ci",
@@ -187,7 +170,6 @@ REPORT_EXAMPLE = Report(
     analysis_window_days=30,
     fleet_summary=FLEET_SUMMARY_EXAMPLE,
     executive_summary="Парк в целом в хорошем состоянии.",
-    top_patterns=[PATTERN_GROUP_EXAMPLE],
     devices=[DEVICE_REPORT_EXAMPLE],
     calculation_snapshot=CALCULATION_SNAPSHOT_EXAMPLE,
 )

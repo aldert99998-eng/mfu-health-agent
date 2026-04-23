@@ -296,10 +296,10 @@ def _parse_with_pdftotext(
         if proc.returncode != 0:
             raise ParseError(f"pdftotext ошибка: {proc.stderr.decode(errors='replace')}")
         full_text = proc.stdout.decode("utf-8", errors="replace")
-    except FileNotFoundError:
-        raise ParseError("pdftotext не установлен (apt install poppler-utils)")
-    except subprocess.TimeoutExpired:
-        raise ParseError(f"pdftotext: таймаут на файле {file_path.name}")
+    except FileNotFoundError as err:
+        raise ParseError("pdftotext не установлен (apt install poppler-utils)") from err
+    except subprocess.TimeoutExpired as err:
+        raise ParseError(f"pdftotext: таймаут на файле {file_path.name}") from err
 
     raw_pages = full_text.split("\f")
     pages = [p for p in raw_pages if p.strip()]

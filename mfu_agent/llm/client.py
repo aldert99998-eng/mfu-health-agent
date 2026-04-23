@@ -32,6 +32,9 @@ from tenacity import (
     wait_exponential,
 )
 
+from .auth import TokenProvider, build_token_provider
+from .http import build_http_client
+
 if TYPE_CHECKING:
     from config.loader import LLMEndpointConfig, LLMGenerationParams
 
@@ -128,13 +131,18 @@ _GUIDED_JSON_PROBE_SCHEMA = {
 
 # ── ReAct parsing ─────────────────────────────────────────────────────────────
 
+# Locate the tool name ("Действие: <identifier>") and the start of the JSON
+# block ("Параметры: {"). Whitespace between the two is any run of spaces,
+# tabs, or newlines — some local models emit them on one line without a
+# newline. The JSON body is extracted with a real JSON decoder (see
+# _parse_react_tool_calls) rather than a regex, to handle nested objects.
 _REACT_ACTION_RE = re.compile(
-    r"Действие:\s*(\S+)\s*\n\s*Параметры:\s*(\{.*?\})",
-    re.DOTALL,
+    r"Действие:\s*[`\"']?([A-Za-z_][A-Za-z0-9_]*)[`\"']?\s+Параметры:\s*",
+    re.IGNORECASE,
 )
 _REACT_ACTION_EN_RE = re.compile(
-    r"Action:\s*(\S+)\s*\n\s*Parameters:\s*(\{.*?\})",
-    re.DOTALL,
+    r"Action:\s*[`\"']?([A-Za-z_][A-Za-z0-9_]*)[`\"']?\s+Parameters:\s*",
+    re.IGNORECASE,
 )
 
 _REACT_INSTRUCTION_RU = (
@@ -160,6 +168,7 @@ REASONING_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"\br1\b", re.IGNORECASE),
     re.compile(r"o[134]-", re.IGNORECASE),
     re.compile(r"reasoning", re.IGNORECASE),
+    re.compile(r"nemotron", re.IGNORECASE),
 ]
 
 
@@ -184,11 +193,22 @@ class LLMClient:
         self._model = config.model
         self._lock = threading.Lock()
 
+        # Threading-local guard preventing 401-retry recursion storms.
+        self._retry_state = threading.local()
+
+        # Provider-agnostic auth layer.  For local endpoints this is a
+        # no-op and behaviour is byte-identical to the pre-multi-provider
+        # code path.  For GigaChat the http_client's event_hook rewrites
+        # Authorization with a fresh Bearer on every request.
+        self._token_provider: TokenProvider = build_token_provider(config)
+        self._http_client = build_http_client(config, self._token_provider)
+
         self._client = OpenAI(
             base_url=config.url,
-            api_key=config.api_key,
+            api_key=config.api_key or "placeholder",
             timeout=config.timeout_seconds,
             max_retries=0,
+            http_client=self._http_client,
         )
 
         self._tool_strategy: str | None = (
@@ -198,10 +218,11 @@ class LLMClient:
         self._is_reasoning = is_reasoning_model(self._model)
 
         logger.info(
-            "LLMClient инициализирован: %s model=%s strategy=%s",
+            "LLMClient инициализирован: %s model=%s strategy=%s auth=%s",
             config.url,
             config.model,
             self._tool_strategy or "auto",
+            (config.auth.type if config.auth else "static"),
         )
         if self._is_reasoning:
             logger.warning(
@@ -298,6 +319,14 @@ class LLMClient:
                 latency_ms=round(latency, 1),
                 error=str(exc)[:200],
             )
+
+    def list_available_models(self) -> list[str]:
+        """Query /v1/models — returns actually loaded models, not YAML hint."""
+        try:
+            resp = self._client.models.list()
+        except Exception:
+            return []
+        return [m.id for m in getattr(resp, "data", []) if getattr(m, "id", None)]
 
     # ── Native tools strategy ─────────────────────────────────────────────
 
@@ -436,6 +465,26 @@ class LLMClient:
                 f"Rate limit от {self._config.url}: {exc}",
             ) from exc
         except APIStatusError as exc:
+            # 401 → token likely stale (e.g. GigaChat clock skew).  Drop the
+            # cached token, retry once inline, then surface the error.
+            if exc.status_code == 401 and not getattr(
+                self._retry_state, "retrying_401", False
+            ):
+                logger.warning(
+                    "401 от %s — инвалидирую token и повторяю запрос один раз",
+                    self._config.url,
+                )
+                self._token_provider.invalidate()
+                self._retry_state.retrying_401 = True
+                try:
+                    return self._client.chat.completions.create(**kwargs)
+                except APIStatusError as exc2:
+                    raise LLMConnectionError(
+                        f"HTTP {exc2.status_code} от {self._config.url} "
+                        f"(после повтора с обновлённым token): {exc2}",
+                    ) from exc2
+                finally:
+                    self._retry_state.retrying_401 = False
             raise LLMConnectionError(
                 f"HTTP ошибка {exc.status_code} от {self._config.url}: {exc}",
             ) from exc
@@ -540,13 +589,21 @@ class LLMClient:
         """Parse ReAct-style Мысль/Действие/Параметры output."""
         for pattern in (_REACT_ACTION_RE, _REACT_ACTION_EN_RE):
             m = pattern.search(text)
-            if m:
-                name = m.group(1).strip()
-                try:
-                    args = json.loads(m.group(2))
-                except json.JSONDecodeError:
-                    args = {"_raw": m.group(2)}
-                return [ToolCall(name=name, arguments=args)]
+            if not m:
+                continue
+            name = m.group(1).strip()
+            # Parse the JSON that starts at m.end() — use raw_decode so
+            # nested objects (e.g. {"filters": {"a": 1}}) are handled and
+            # trailing prose ("Мысль: ...") is ignored.
+            tail = text[m.end():].lstrip()
+            if not tail.startswith("{"):
+                return [ToolCall(name=name, arguments={"_raw": tail[:200]})]
+            try:
+                obj, _ = json.JSONDecoder().raw_decode(tail)
+                args = obj if isinstance(obj, dict) else {"_raw": str(obj)[:200]}
+            except json.JSONDecodeError:
+                args = {"_raw": tail[:200]}
+            return [ToolCall(name=name, arguments=args)]
         return None
 
     @staticmethod
@@ -600,6 +657,15 @@ class LLMClient:
         Safe to call on any LLM output that should be plain text.
         Do NOT use on responses expected to contain JSON tool calls.
         """
+        # 0. Cut at the first ChatML turn boundary — if the model keeps
+        #    talking past <|im_end|> or opens a new <|im_start|> turn,
+        #    drop everything from that point on (including follow-up
+        #    "<|im_start|>assistant <think>…" leaks).
+        cuts = [text.find(tok) for tok in ("<|im_end|>", "<|im_start|>")]
+        cuts = [c for c in cuts if c >= 0]
+        if cuts:
+            text = text[: min(cuts)]
+
         # 1. Remove <think>...</think> blocks (possibly nested, DOTALL)
         text = re.sub(r"<think>.*?</think>\s*", "", text, flags=re.DOTALL | re.IGNORECASE)
         # Handle unclosed <think> — drop everything before </think>

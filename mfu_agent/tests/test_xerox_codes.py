@@ -94,52 +94,12 @@ class TestErrorCodePatternsYaml:
                     pytest.fail(f"{vendor}: invalid regex {p!r}: {exc}")
 
 
-# ── Heuristic severity fallback ──────────────────────────────────────────────
+# ── ClassifyErrorSeverityTool fallbacks ──────────────────────────────────────
 
 
-class TestHeuristicClassify:
-    def test_known_critical_code(self) -> None:
-        from agent.tools.impl import _heuristic_classify
-
-        result = _heuristic_classify("09-594-00")
-        assert result is not None
-        assert result["severity"] == "Critical"
-        assert "fuser" in result["affected_components"]
-
-    def test_known_high_code(self) -> None:
-        from agent.tools.impl import _heuristic_classify
-
-        result = _heuristic_classify("75-530-00")
-        assert result is not None
-        assert result["severity"] == "High"
-        assert "toner" in result["affected_components"]
-
-    def test_unknown_xerox_prefix_fallback(self) -> None:
-        from agent.tools.impl import _heuristic_classify
-
-        result = _heuristic_classify("09-999-99")
-        assert result is not None
-        assert result["severity"] == "Critical"
-        assert result["confidence"] == 0.4
-
-    def test_non_xerox_code_returns_none(self) -> None:
-        from agent.tools.impl import _heuristic_classify
-
-        assert _heuristic_classify("C6000") is None
-        assert _heuristic_classify("SC543") is None
-
-    def test_completely_unknown_xerox_prefix(self) -> None:
-        from agent.tools.impl import _heuristic_classify
-
-        result = _heuristic_classify("99-999-99")
-        assert result is None
-
-
-# ── ClassifyErrorSeverityTool with empty RAG ─────────────────────────────────
-
-
-class TestClassifyToolHeuristicFallback:
-    def test_xerox_code_with_empty_rag_uses_heuristic(self) -> None:
+class TestClassifyToolFallback:
+    def test_xerox_code_resolved_via_per_model_registry(self) -> None:
+        """Alias B8045 → altalink_b8090 registry contains 75-530-00=Low."""
         from agent.tools.impl import ClassifyErrorSeverityTool, ToolDependencies
         from agent.tools.registry import ToolResult
 
@@ -157,8 +117,8 @@ class TestClassifyToolHeuristicFallback:
 
         assert isinstance(result, ToolResult)
         assert result.success
-        assert result.data["severity"] == "High"
-        assert "toner" in result.data["affected_components"]
+        assert result.data["severity"] == "Low"
+        assert "registry" in result.data["source"]
 
     def test_non_xerox_code_with_empty_rag_uses_generic_fallback(self) -> None:
         from agent.tools.impl import ClassifyErrorSeverityTool, ToolDependencies

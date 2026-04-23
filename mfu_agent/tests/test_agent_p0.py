@@ -122,6 +122,7 @@ def _make_factor_store():
     fs.count_repetitions.return_value = 3
     fs.list_devices.return_value = ["DEV001"]
     fs.get_device_metadata.return_value = FakeMetadata()
+    fs.reference_time = datetime(2026, 4, 15, tzinfo=UTC)
     return fs
 
 
@@ -824,7 +825,7 @@ class TestToolRegistryEdgeCases:
         register_all_tools(registry, deps)
 
         schemas = registry.get_all_schemas()
-        assert len(schemas) == 10
+        assert len(schemas) == 13
 
         for schema in schemas:
             assert "type" in schema
@@ -905,6 +906,129 @@ class TestMemoryManagerEdgeCases:
         # Only 3 should be stored for that scope
         scope_patterns = [p for p in mm.get_patterns() if p.scope == "MX-3071"]
         assert len(scope_patterns) == 3
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Batch must use full FactorStore, not truncated tool output
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestRunBatchLiteUsesFullFactorStore:
+    """`run_batch_lite` must classify every unique error code in the window,
+    not just the 50 that `GetDeviceEventsTool` exposes for chat context.
+    """
+
+    def test_handles_sixty_unique_codes(self) -> None:
+        device = "DEV-LOUD"
+        base_ts = datetime(2026, 4, 15, 10, 0, tzinfo=UTC)
+        events = [
+            FakeEvent(
+                device_id=device,
+                timestamp=base_ts,
+                error_code=f"75-{i:03d}-00",
+                error_description=f"simulated consumable error {i}",
+                model="AltaLink B8090",
+                vendor="Xerox",
+            )
+            for i in range(60)
+        ]
+
+        fs = MagicMock()
+        fs.get_events.return_value = events
+        fs.get_resources.return_value = FakeResource(device_id=device)
+        fs.get_device_metadata.return_value = FakeMetadata(
+            device_id=device, model="AltaLink B8090", vendor="Xerox",
+        )
+        fs.count_repetitions.return_value = 1
+        fs.reference_time = datetime(2026, 4, 15, 12, 0, tzinfo=UTC)
+
+        llm = MagicMock()
+        agent = _make_agent(llm, factor_store=fs)
+
+        _, trace, calc_args = agent.run_batch_lite(device, _make_context())
+
+        assert len(calc_args["factors"]) == 60, (
+            f"Expected all 60 unique codes in factors, got {len(calc_args['factors'])} "
+            "— batch is still truncating via GetDeviceEventsTool."
+        )
+        assert llm.generate.call_count == 0, (
+            "Heuristic must cover every 75-*-00 code; LLM fallback signals a regression."
+        )
+
+    def test_factor_uses_latest_timestamp_per_code(self) -> None:
+        """Regression: for repeated error_code, factor must carry the latest
+        timestamp, not the first. The age-modifier A depends on it — using
+        the oldest timestamp silently understates penalty for recurring errors.
+        """
+        device = "DEV-REPEAT"
+        old = datetime(2026, 3, 1, 10, 0, tzinfo=UTC)
+        recent = datetime(2026, 4, 20, 10, 0, tzinfo=UTC)
+        events = [
+            FakeEvent(
+                device_id=device, timestamp=old,
+                error_code="75-530-00", error_description="Tray 5 empty",
+                model="AltaLink B8090", vendor="Xerox",
+            ),
+            FakeEvent(
+                device_id=device, timestamp=recent,
+                error_code="75-530-00", error_description="Tray 5 empty",
+                model="AltaLink B8090", vendor="Xerox",
+            ),
+        ]
+
+        fs = MagicMock()
+        fs.get_events.return_value = events
+        fs.get_resources.return_value = FakeResource(device_id=device)
+        fs.get_device_metadata.return_value = FakeMetadata(
+            device_id=device, model="AltaLink B8090", vendor="Xerox",
+        )
+        fs.count_repetitions.return_value = 2
+        fs.reference_time = datetime(2026, 4, 21, 0, 0, tzinfo=UTC)
+
+        agent = _make_agent(MagicMock(), factor_store=fs)
+        _, _, calc_args = agent.run_batch_lite(device, _make_context())
+
+        assert len(calc_args["factors"]) == 1
+        factor_ts = calc_args["factors"][0]["event_timestamp"]
+        assert factor_ts == recent.isoformat(), (
+            f"Expected latest timestamp {recent.isoformat()}, got {factor_ts}. "
+            "run_batch_lite is keeping the FIRST occurrence instead of the LATEST."
+        )
+
+    def test_events_without_code_not_collapsed_by_description(self) -> None:
+        """Regression: two events without error_code but with different
+        descriptions must yield two factors, not one.
+        """
+        device = "DEV-NOCODE"
+        ts = datetime(2026, 4, 20, 10, 0, tzinfo=UTC)
+        events = [
+            FakeEvent(
+                device_id=device, timestamp=ts,
+                error_code=None, error_description="Paper jam in tray 1",
+                model="AltaLink B8090", vendor="Xerox",
+            ),
+            FakeEvent(
+                device_id=device, timestamp=ts,
+                error_code=None, error_description="Paper jam in tray 2",
+                model="AltaLink B8090", vendor="Xerox",
+            ),
+        ]
+
+        fs = MagicMock()
+        fs.get_events.return_value = events
+        fs.get_resources.return_value = FakeResource(device_id=device)
+        fs.get_device_metadata.return_value = FakeMetadata(
+            device_id=device, model="AltaLink B8090", vendor="Xerox",
+        )
+        fs.count_repetitions.return_value = 1
+        fs.reference_time = datetime(2026, 4, 21, 0, 0, tzinfo=UTC)
+
+        agent = _make_agent(MagicMock(), factor_store=fs)
+        _, _, calc_args = agent.run_batch_lite(device, _make_context())
+
+        assert len(calc_args["factors"]) == 2, (
+            "Events with different descriptions and no code must not collapse."
+        )
 
 
 # ═══════════════════════════════════════════════════════════════════════════

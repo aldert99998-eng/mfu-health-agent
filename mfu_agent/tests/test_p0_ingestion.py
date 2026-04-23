@@ -93,7 +93,11 @@ class TestTCE006:
             # Binary content should either raise an error during parsing
             # or produce an unusable result. The key assertion: the pipeline
             # does not silently accept garbage as valid data.
-            with pytest.raises(Exception):
+            from data_io.parsers import EncodingError, MalformedFileError
+
+            with pytest.raises(
+                (EncodingError, MalformedFileError, UnicodeDecodeError, ValueError, pd.errors.ParserError),
+            ):
                 df = parse_file(p)
                 # If parse_file doesn't raise, verify the result is degenerate
                 if len(df) == 0:
