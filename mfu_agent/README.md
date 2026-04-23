@@ -15,17 +15,30 @@ AI-агент мониторинга парка многофункциональ
 
 ## Запуск панели управления
 
-Если зависимости уже установлены — одна команда:
+Если зависимости уже установлены — одна команда поднимает всё:
 
 ```bash
-cd ~/агенты/ии\ индекс\ здоровья-2/mfu_agent && make up && make run
+cd ~/агенты/ии\ индекс\ здоровья-2/mfu_agent && make start
 ```
 
-Что делает:
-1. Поднимает Qdrant в Docker (`make up` → `docker compose up -d`)
-2. Запускает Streamlit (`make run` → порт **8504**, headless)
+Что делает `make start`:
+1. Поднимает Qdrant в Docker (`docker compose up -d` на портах 6343/6344).
+2. Запускает `llama-server` на `localhost:8000` через [scripts/start_llama.sh](scripts/start_llama.sh),
+   если он ещё не отвечает. По умолчанию грузит первую `.gguf` из
+   `/home/albert/models/`. Чтобы выбрать конкретную модель:
+   ```bash
+   MFU_LOCAL_MODEL=Qwen2.5-14B-Instruct-Q8_0.gguf make start
+   ```
+   Логи llama-server: `/tmp/llama-server.log`.
+3. Запускает Streamlit на порту **8504**.
 
 Панель откроется в браузере по адресу **http://localhost:8504**.
+
+Остановить всё (Streamlit + llama-server + Qdrant):
+
+```bash
+make stop
+```
 
 ### Первая установка
 
@@ -35,7 +48,7 @@ cd ~/агенты/ии\ индекс\ здоровья-2/mfu_agent && make up &&
 cd ~/агенты/ии\ индекс\ здоровья-2/mfu_agent && make install
 ```
 
-После этого для ежедневного запуска достаточно команды из раздела выше.
+После этого для ежедневного запуска достаточно `make start`.
 
 ### Страницы панели управления
 
@@ -69,12 +82,15 @@ cd ~/агенты/ии\ индекс\ здоровья-2/mfu_agent && make insta
 
 ```bash
 make install        # установка зависимостей + запуск Qdrant
-make up             # запуск Qdrant (если уже установлено)
-make run            # запуск Streamlit-приложения
+make start          # Qdrant + llama-server + Streamlit (всё)
+make stop           # остановить всё
+make up             # только Qdrant
+make down           # остановить Qdrant
+make llama          # запустить только llama-server (idempotent)
+make run            # запустить только Streamlit
 make test           # прогон тестов (pytest)
 make lint           # ruff + mypy
 make format         # автоформатирование кода
-make down           # остановка Qdrant
 ```
 
 ## Архитектура
